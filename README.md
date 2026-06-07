@@ -89,12 +89,12 @@ This repository will grow into a full documentation hub with instructions for:
 
 We welcome pull requests, design files, firmware improvements, and documentation edits.
 
-Start by reading the contribution guide:  
-```markdown
-📄 [CONTRIBUTING.md](./CONTRIBUTING.md)
-```
+Start by reading the org-wide contribution guide:  
+📄 [CONTRIBUTING.md](https://github.com/Open-Muscle/.github/blob/main/CONTRIBUTING.md)
 
-You can also join upcoming GitHub Discussions to suggest ideas or improvements.
+File issues on the repo that owns the work. Not sure which one? Open an issue
+here on the Hub and a maintainer will route it. You can also join upcoming
+GitHub Discussions to suggest ideas or improvements.
 
 > ✅ Beginners welcome! Look for "good first issue" tags in the Software repo.
 
