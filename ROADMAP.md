@@ -23,7 +23,7 @@ OpenMuscle is not a product company. It is an open hardware project with two adj
 
 - **FlexGrid V3 is working.** The 60-sensor (15 by 4) Velostat band runs end-to-end: live sensor capture, model training, inference, and integration with a robot hand. First clean inference session hit R² = 0.854.
 - **FlexGrid V4 is in production.** Ten dev kits ordered, arriving mid-June 2026, shipping to two outside collaborators plus the founder.
-- **LASK5** (the labeling wand for ground-truth capture) is functional and being migrated into the Open-Muscle GitHub organization.
+- **LASK5** (the labeling wand for ground-truth capture) is functional and lives at [Open-Muscle/OpenMuscle-LASK5](https://github.com/Open-Muscle/OpenMuscle-LASK5); the migration from the legacy `turfptax/lask4` repo is complete.
 - **Software stack** includes the PC application (Python, FastAPI web UI, ML training and hot-swap inference, robot hand forwarding) and the firmware in MicroPython on ESP32-S3.
 - **First academic use:** a master's thesis at an Oregon university is testing FlexGrid on an amputee participant.
 - **Legal structure:** not yet incorporated. Nonprofit and for-profit entities are planned (see Business Structure below).
@@ -37,12 +37,12 @@ The focus is on shipping V4 to outside hands, hardening the contribution flow so
 ### Hardware
 - **FlexGrid V4 dev kit rollout.** Ten units ordered; first three (founder plus two collaborators) deployed by late June 2026. The V4 keeps the rigid PCB on the left side of the band, matching the V3 layout that proved out.
 - **Bridge PCB research.** A separate interposer PCB between the flexible sensor PCB and the rigid compute board. It carries the multiplexer so the harness drops from the current 19 wires down to 8, and it takes mechanical stress off the flexible PCB to reduce wear and make repairs easier. Intended for a future hardware revision (not V4 itself), so the option exists when V5 design starts. Idea contributed by [@HeatRIderHR](https://github.com/HeatRIderHR) ([#3](https://github.com/Open-Muscle/OpenMuscle-Hub/issues/3)).
-- **LASK5 hardware repo migration** from `turfptax/lask4` into `Open-Muscle/OpenMuscle-LASK5`, with hardware (CERN-OHL-S-2.0) and firmware (MIT, when promoted) cleanly split per the repo layout doc.
+- **LASK5 repo cleanup.** The hardware repo migration to `Open-Muscle/OpenMuscle-LASK5` is done. Remaining: flatten the duplicated KiCad trees from the migration, prune committed backup archives, and promote firmware (MIT) to its own repo when the hardware stabilizes, per the repo layout doc.
 
 ### Software and data
 - **Multi-input training capture.** Add recording paths for keyboard input, game controller input, and musical instrument input (MIDI first). Every input becomes a labeled dataset where the bracelet sees the finger motion and the input device provides ground truth.
 - **Public training data repository.** Stand up a hosted, downloadable corpus of labeled hand-biomechanics sessions, free to anyone for ML research. This is the long-game asset.
-- **VR/XR client extraction.** Move the WebXR client out of the PC web app and into the new `OpenMuscle-AR` repo. PC app keeps the FastAPI server and the VR bridge endpoints.
+- **VR/XR client extraction (not yet started).** Extract the WebXR client out of the PC web app and into the `OpenMuscle-AR` repo. The client currently still lives in `OpenMuscle-Software` under `pc/src/openmuscle/web/static/vr/`. PC app keeps the FastAPI server and the VR bridge endpoints.
 - **CONTRIBUTING.md, Code of Conduct, and issue templates** finalized in the Hub repo so external contributors can open issues, route them to the right sub-repo, and get credit for ideas as well as code.
 
 ### Organization

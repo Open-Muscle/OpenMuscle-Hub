@@ -19,7 +19,8 @@ draft left items as NEEDS INPUT, the decisions are recorded here.
 | [FlexGridV3-Firmware](https://github.com/Open-Muscle/FlexGridV3-Firmware) | Shipping FlexGrid V3 firmware | Promoted stable copy from `embedded/devices/` | MIT |
 | FlexGridV4-Firmware (planned) | Shipping FlexGrid V4 firmware | Promoted when V4 hardware stabilizes | MIT |
 | [OpenMuscle-LASK5](https://github.com/Open-Muscle/OpenMuscle-LASK5) | LASK5 hardware | KiCad, BOM, STLs | CERN-OHL-S-2.0 |
-| [OpenMuscle-AR](https://github.com/Open-Muscle/OpenMuscle-AR) | VR/XR application | WebXR client (moving out of the PC web server), VR docs, future native Quest APK | see repo |
+| [OpenMuscle-AR](https://github.com/Open-Muscle/OpenMuscle-AR) | VR/XR application | WebXR client (planned extraction; currently in OpenMuscle-Software), VR docs, future native Quest APK | MIT |
+| [OpenMuscle-Library](https://github.com/Open-Muscle/OpenMuscle-Library) | Shared KiCad and CAD parts | Symbols, footprints, 3D models, mechanical parts reused across devices; consumed via the `OM_LIB` path variable | CC BY 4.0 (vendor parts per source) |
 | [OpenMuscle-Hub](https://github.com/Open-Muscle/OpenMuscle-Hub) | Coordination and docs | Roadmap, this note, issue routing | docs |
 
 ## Decisions
