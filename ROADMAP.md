@@ -36,7 +36,7 @@ The focus is on shipping V4 to outside hands, hardening the contribution flow so
 
 ### Hardware
 - **FlexGrid V4 dev kit rollout.** Ten units ordered; first three (founder plus two collaborators) deployed by late June 2026. The V4 keeps the rigid PCB on the left side of the band, matching the V3 layout that proved out.
-- **Bridge PCB research.** A separate small PCB that consolidates the current 19-wire harness down to 8 wires, intended for a future hardware revision (not V4 itself). Forward-looking R&D so the option exists when V5 design starts.
+- **Bridge PCB research.** A separate interposer PCB between the flexible sensor PCB and the rigid compute board. It carries the multiplexer so the harness drops from the current 19 wires down to 8, and it takes mechanical stress off the flexible PCB to reduce wear and make repairs easier. Intended for a future hardware revision (not V4 itself), so the option exists when V5 design starts. Idea contributed by [@HeatRIderHR](https://github.com/HeatRIderHR) ([#3](https://github.com/Open-Muscle/OpenMuscle-Hub/issues/3)).
 - **LASK5 hardware repo migration** from `turfptax/lask4` into `Open-Muscle/OpenMuscle-LASK5`, with hardware (CERN-OHL-S-2.0) and firmware (MIT, when promoted) cleanly split per the repo layout doc.
 
 ### Software and data

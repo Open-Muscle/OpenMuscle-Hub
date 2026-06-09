@@ -22,10 +22,13 @@ OpenMuscle enables wearable biosensing devices using custom sensors, open firmwa
 
 | Project | Description | Repository |
 |--------|-------------|------------|
-| **FlexGrid** | 60-sensor wearable with flexible PCB and pressure matrix | [OpenMuscle-FlexGrid](https://github.com/Open-Muscle/OpenMuscle-FlexGrid) |
-| **LASK5** | Handheld labeler wand for training ML models on gesture inputs | [OpenMuscle-LASK5](https://github.com/Open-Muscle/OpenMuscle-LASK5) |
-| **Band (OM-12)** | Original OpenMuscle armband with 12 sensors (legacy design) | [OpenMuscle-Band](https://github.com/Open-Muscle/OpenMuscle-Band) |
-| **Software/Firmware** | Shared firmware for all devices, includes async scanning, model hooks, and examples | [OpenMuscle-Software](https://github.com/Open-Muscle/OpenMuscle-Software) |
+| **FlexGrid** | 60-sensor wearable: flexible sensor PCB plus rigid controller PCB | [OpenMuscle-FlexGrid](https://github.com/Open-Muscle/OpenMuscle-FlexGrid) |
+| **FlexGrid Firmware** | MicroPython firmware for the FlexGrid controller (ESP32-S3) | [FlexGridV3-Firmware](https://github.com/Open-Muscle/FlexGridV3-Firmware) |
+| **LASK5** | Handheld labeler wand for capturing ground-truth gesture labels | [OpenMuscle-LASK5](https://github.com/Open-Muscle/OpenMuscle-LASK5) |
+| **Software** | PC application: data capture, ML training and inference, web UI | [OpenMuscle-Software](https://github.com/Open-Muscle/OpenMuscle-Software) |
+| **AR / XR** | WebXR client and the future native headset app | [OpenMuscle-AR](https://github.com/Open-Muscle/OpenMuscle-AR) |
+| **Library** | Shared KiCad symbols, footprints, and 3D/CAD parts | [OpenMuscle-Library](https://github.com/Open-Muscle/OpenMuscle-Library) |
+| **Band (OM-12)** | Original 12-sensor armband (legacy design) | [OpenMuscle-Band](https://github.com/Open-Muscle/OpenMuscle-Band) |
 
 ---
 
