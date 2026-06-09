@@ -2,7 +2,7 @@
 
 **Status:** Living document, updated as milestones complete or strategy shifts.
 **Last updated:** 2026-06-07
-**Owner:** Tory Moghadam (TURFPTAx)
+**Maintained by:** Tory (TURFPTAx), founder
 **Scope:** What OpenMuscle is building, in what order, and why.
 
 This roadmap is intentionally honest about three things: where we are today, what's coming soon (with rough dates), and what the long-term vision looks like (without overselling). If you want to contribute, the near-term section is where to start. If you want to understand why we exist, read the mission and the ten-year vision.
@@ -13,20 +13,20 @@ For the underlying repo and firmware structure that supports this roadmap, see [
 
 ## Mission
 
-Build accessible, affordable, open-source sensor technology that lets a wearable forearm device read what a human hand is doing, and put the designs, software, and data in the hands of anyone who wants to use them. The first beneficiaries are people with intact forearms but missing hands. The broader benefit is a shared, open dataset of human hand biomechanics that the entire research community can use.
+Democratize prosthetic sensor technology. Build affordable, open-source, open-hardware pressure myography sensors that anyone can build, modify, and improve. Every design file, every line of code, every dataset is published openly under MIT (software), CERN-OHL-S v2.0 (hardware), and Creative Commons (documentation) licenses.
 
-OpenMuscle is not a product company. It is an open hardware project with two adjacent entities (a nonprofit and a separately disclosed for-profit) that together fund its growth without compromising the open core.
+The first beneficiaries are people with intact forearms but missing hands. The broader benefit is a shared, open dataset of pressure myography readings that the research community can use across prosthetics, human-computer interaction, and brain-machine interface research.
 
 ---
 
 ## Where we are today (June 2026)
 
-- **FlexGrid V3 is working.** The 60-sensor (15 by 4) Velostat band runs end-to-end: live sensor capture, model training, inference, and integration with a robot hand. First clean inference session hit R² = 0.854.
+- **FlexGrid V3 is working.** The 60-sensor (15 by 4) Velostat band, about $45 in components, runs end-to-end: live sensor capture, model training, inference, and integration with a robot hand. First clean inference session hit R² = 0.854.
 - **FlexGrid V4 is in production.** Ten dev kits ordered, arriving mid-June 2026, shipping to two outside collaborators plus the founder.
 - **LASK5** (the labeling wand for ground-truth capture) is functional and lives at [Open-Muscle/OpenMuscle-LASK5](https://github.com/Open-Muscle/OpenMuscle-LASK5); the migration from the legacy `turfptax/lask4` repo is complete.
 - **Software stack** includes the PC application (Python, FastAPI web UI, ML training and hot-swap inference, robot hand forwarding) and the firmware in MicroPython on ESP32-S3.
 - **First academic use:** a master's thesis at an Oregon university is testing FlexGrid on an amputee participant.
-- **Legal structure:** not yet incorporated. Nonprofit and for-profit entities are planned (see Business Structure below).
+- **Legal structure:** not yet incorporated. Nonprofit incorporation is in preparation; details will be published as that work progresses.
 
 ---
 
@@ -41,13 +41,13 @@ The focus is on shipping V4 to outside hands, hardening the contribution flow so
 
 ### Software and data
 - **Multi-input training capture.** Add recording paths for keyboard input, game controller input, and musical instrument input (MIDI first). Every input becomes a labeled dataset where the bracelet sees the finger motion and the input device provides ground truth.
-- **Public training data repository.** Stand up a hosted, downloadable corpus of labeled hand-biomechanics sessions, free to anyone for ML research. This is the long-game asset.
+- **Public training data repository.** Stand up a hosted, downloadable corpus of labeled pressure myography sessions, free to anyone for ML research. The first application is prosthetic finger-movement prediction; the dataset enables much more. This is the long-game asset.
 - **VR/XR client extraction (not yet started).** Extract the WebXR client out of the PC web app and into the `OpenMuscle-AR` repo. The client currently still lives in `OpenMuscle-Software` under `pc/src/openmuscle/web/static/vr/`. PC app keeps the FastAPI server and the VR bridge endpoints.
 - **CONTRIBUTING.md, Code of Conduct, and issue templates** finalized in the Hub repo so external contributors can open issues, route them to the right sub-repo, and get credit for ideas as well as code.
 
 ### Organization
 - **Nonprofit incorporation** (501(c)(3) most likely). The nonprofit will own the OpenMuscle brand, the core open-source hardware designs, and the public datasets. Revenue comes from brand licensing fees, donations, and grants.
-- **For-profit incorporation** (separately disclosed). A privately funded company that licenses the brand from the nonprofit and builds commercial products (initially a VR input device). Other companies are explicitly welcome to do the same. The nonprofit cannot, and will not, prevent commercial forks.
+- **Brand-licensing program.** Stand up the process by which any company, including future commercial OpenMuscle ventures, can license the OpenMuscle trademark for products built on the open designs. Other companies are explicitly welcome to build commercial products; the nonprofit cannot, and will not, prevent commercial forks.
 
 ---
 
@@ -82,13 +82,13 @@ The near-term work earns OpenMuscle the right to talk about scale. This section 
 
 The further out a roadmap goes, the more it should describe outcomes rather than predictions. These are the outcomes we are building toward. They are conditional on a lot of things going right, and we say so openly.
 
-### If OpenMuscle becomes the de facto standard for hand biomechanics sensing, the following becomes possible:
+### If OpenMuscle becomes the de facto standard for pressure myography sensing, the following becomes possible:
 
 - **Large-scale consumer applications.** A hardware standard cheap enough and reliable enough to be used as a human interface device in games, productivity tools, creative software, accessibility tools, and XR experiences. Every use generates additional labeled training data, with explicit consent, that flows back into the public dataset.
-- **Anti-cheat as a side effect.** Hand biomechanics are extremely hard to fake. A platform that reads what your hand is actually doing is, incidentally, a strong anti-cheat signal. Game publishers integrating this gain both an input modality and an integrity check. Players gain the option to contribute their gameplay biomechanics to prosthetic research.
+- **Anti-cheat as a side effect.** Real hand motion is extremely hard to fake. A platform that reads what your hand is actually doing is, incidentally, a strong anti-cheat signal. Game publishers integrating this gain both an input modality and an integrity check. Players gain the option to contribute their gameplay motion data to prosthetic research.
 - **Prosthetic AI training at unprecedented scale.** With orders of magnitude more diverse hand data than currently exists, machine learning models for prosthetic control improve dramatically. Models trained on this data improve quality of life for amputees, including veterans.
-- **Brain-computer interface research enabled.** Companies and labs working on neural implants (Neuralink and the broader BMI field) need ground-truth movement data to correlate against neural signals. An open dataset of correlated hand biomechanics is one of the inputs that makes passive BCI viable. We will contribute data, not depend on partnership.
-- **Free or subsidized prosthetic devices distributed globally** through the nonprofit, prioritizing regions where commercial prosthetics are unaffordable. The for-profit ecosystem subsidizes the giveaway program through licensing fees and donations.
+- **Brain-computer interface research enabled.** Companies and labs working on neural implants (Neuralink and the broader BMI field) need ground-truth movement data to correlate against neural signals. An open dataset of correlated pressure myography readings is one of the inputs that makes passive BCI viable. We will contribute data, not depend on partnership.
+- **Free or subsidized prosthetic devices distributed globally** through the nonprofit, prioritizing regions where commercial prosthetics are unaffordable. Commercial licensees subsidize the giveaway program through brand-license fees, alongside donations and grants.
 
 ### The Big Hairy Audacious Goal
 
@@ -98,18 +98,11 @@ This is the ten-year north star. Every milestone above is a step toward it. We m
 
 ---
 
-## Business structure (disclosed)
+## Business structure
 
-OpenMuscle operates as two linked entities, by design:
+OpenMuscle is preparing to incorporate as a nonprofit. Full structural details will be published as incorporation work progresses. The core commitment is unchanged: hardware designs, software, and datasets remain open under MIT, CERN-OHL-S-2.0, and Creative Commons licenses. The only thing the nonprofit will gate is the OpenMuscle trademark, via a brand-licensing program. Other companies are explicitly welcome to build commercial products on top of the open designs; the nonprofit will not, and structurally cannot, prevent commercial forks.
 
-| Entity | Purpose | Funding |
-|---|---|---|
-| **OpenMuscle Nonprofit** (planned 501(c)(3)) | Owns the brand, the open-source hardware designs (MIT), the public datasets, the GitHub organization | Donations, grants, brand-licensing fees |
-| **OpenMuscle for-profit** (planned, name TBD, privately funded) | Licenses the brand from the nonprofit; builds commercial products; pursues regulated markets and contracts | Private investment |
-
-Why both: a nonprofit alone cannot efficiently fund product development, regulatory work, or large-scale manufacturing. A for-profit alone risks closing the open core under shareholder pressure. The two-entity structure puts the core IP in the entity that structurally cannot sell it out, while letting the for-profit compete on execution.
-
-**Other companies are explicitly welcome to build their own for-profit products on the open OpenMuscle designs.** The license is permissive (MIT for software, CERN-OHL-S-2.0 for hardware). The only thing the nonprofit gates is the trademark, which is what the for-profit brand license pays for.
+Project costs are currently funded by the founder personally. This will change as the nonprofit comes online and a sustainable mix of donations, grants, and brand-licensing fees takes over.
 
 ---
 
