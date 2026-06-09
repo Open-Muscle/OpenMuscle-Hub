@@ -74,14 +74,19 @@ This repository will grow into a full documentation hub with instructions for:
 
 ---
 
-## 🌱 Roadmap (WIP)
+## 🌱 Roadmap
 
-| Milestone | Description | ETA |
-|----------|-------------|-----|
-| FlexGrid v1.0 | Finalize PCB, BOM, and test data quality | ⬜ Q4 2025 |
-| LASK5 v5.0 | Usability testing and power optimization | ⬜ Q4 2025 |
-| Documentation Hub | Flesh out full guides and build flow | ⬜ Q4 2025 |
-| Public ML Datasets | Upload labeled data sessions | ⬜ TBD |
+The full roadmap, including near-term milestones, mid-term ecosystem plans, the
+ten-year vision, and the disclosed business structure, lives in
+[ROADMAP.md](./ROADMAP.md).
+
+Quick summary of where we are (June 2026):
+
+- **Now shipping:** FlexGrid V4 dev kits (10 units, first 3 deployed)
+- **In progress:** OpenMuscle-Hub housekeeping, LASK5 repo migration, public training dataset, VR/XR client extraction
+- **Planned:** Nonprofit + for-profit incorporation, native VR app, mobile/Android app, V5 hardware with bridge PCB
+
+See [ROADMAP.md](./ROADMAP.md) for the full picture.
 
 ---
 
