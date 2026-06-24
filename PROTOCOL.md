@@ -1,0 +1,415 @@
+# OpenMuscle Packet Protocol v1.0
+
+**Status:** FROZEN as of 2026-06-23. Implementations code against this document.
+**Canonical home:** this file in OpenMuscle-Hub.
+**Reference implementation:** [FlexGridV4-Firmware](https://github.com/Open-Muscle/FlexGridV4-Firmware) (see `lib/discovery.py`, `lib/commands.py`, `lib/subscribers.py`, `lib/network_manager.py`).
+**Owner:** firmware team (changes go through the `.claude-mail/openmuscle` board).
+
+This spec covers how OpenMuscle sources (sensor and labeler devices) announce themselves on a LAN, how hubs (Android phone, PC web app, native VR app) subscribe to them, and how the resulting sensor and label streams are framed. The wire format is JSON-encoded UTF-8 over UDP and TCP. There is no binary mode and no WebSocket framing in v1.0.
+
+## 1. Terms
+
+| Term | Meaning |
+|---|---|
+| **Source** | A device that emits sensor or label data (FlexGrid V3/V4, LASK5, future OpenHand, quest_hand). |
+| **Hub** | A consumer that subscribes to one or more sources (Android Connect app, PC `openmuscle web`, native Quest app). |
+| **Role** | A semantic tag a hub assigns to a subscribed source: `left`, `right`, `labeler`. Sources are role-agnostic; hubs decide. |
+| **Frame** | One JSON message on the wire (announce, ack, sensor, label, status). |
+| **Envelope** | The outer JSON object that wraps every frame: `{v, type, id, ts, ...}`. |
+
+## 2. Network ports (the frozen contract)
+
+| Purpose | Transport | Port | Direction | Notes |
+|---|---|---|---|---|
+| Discovery announce | UDP broadcast | **3140** | source -> 255.255.255.255 | New in v1.0. Was 3141 in pre-spec firmware; split out so data and discovery cannot interfere. |
+| Data frames (sensor, label, status) | UDP unicast | **3141** | source -> subscribed hub | Hub picks its own listen port and tells the source in the `subscribe` verb; 3141 is the convention and the default. |
+| Command channel | TCP | **8001** (FlexGrid), **8002** (LASK5) | hub -> source | Per-device-type; advertised in announce `services.cmd`. |
+| mDNS (best-effort) | UDP multicast | 5353 | both | Optional. `_openmuscle._udp.local` service. Hubs that use mDNS find sources by hostname `<device-id>.local`. |
+
+**Why two UDP ports.** Hubs that listen on the data port get a clean stream of only the sources they subscribed to. Putting announces on the same port forces every hub to type-filter every packet and creates back-pressure on busy capture sessions. The split is the v1.0 design; type-filtering on a shared port is a fallback only.
+
+## 3. Envelope
+
+Every frame is a JSON object with these required fields:
+
+```json
+{
+    "v":    "1.0",
+    "type": "<frame-type>",
+    "id":   "<source-or-hub-id>",
+    "ts":   164587,
+    "data": { ... },
+    "meta": { ... }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `v` | string | yes | Protocol version. `"1.0"` for this spec. |
+| `type` | string | yes | Frame discriminator. For data frames, the source's device type (`"flexgrid"`, `"lask5"`, `"quest_hand"`). For control frames, the control type (`"announce"`, `"ack"`, `"cmd"`). |
+| `id` | string | yes | Stable identifier of the emitting device or hub (e.g. `"flexgrid-d7af0b"`, `"pc-native-discovery"`). |
+| `ts` | int | yes | Sender-local timestamp in milliseconds. Not wall-clock; only ordering and rate measurement are guaranteed. Hubs stamp arrival time on receipt. |
+| `data` | object | yes | Type-specific payload. May be `{}` for status-only frames. |
+| `meta` | object | no | Auxiliary metadata: battery, RSSI, calibration state, subscriber list, firmware version. |
+| `seq` | int | sensor frames | Rolling 16-bit (0..65535) sequence number per (source, stream). Hubs use it to detect drops; wrap is normal. |
+| `msg_id` | int | cmd + ack | Correlation ID set by the hub on each command, echoed in the ack. |
+| `status` | string | ack only | `"ok"` or `"error"`. |
+
+## 4. Versioning policy
+
+The `v` field is the version of the envelope and the wire contract. Hubs and sources both inspect `v` on every received frame.
+
+- **Non-breaking changes** stay on `"v": "1.0"`. Adding a new device `type`, a new optional `meta` field, a new command verb, or a new optional field inside an existing `data` payload is non-breaking. Old hubs see it and ignore it.
+- **Breaking changes** bump `v` to `"1.1"` or higher. Changing the set of required envelope fields, changing the semantics of `ts` or `id`, changing existing frame shapes, or removing fields is breaking.
+- **Graceful degradation rule.** A receiver MUST NOT crash on an unrecognized `type`, an unrecognized verb, or an unrecognized optional field. It MAY warn and discard. A receiver MUST reject a frame whose `v` is incompatible (major bump) and SHOULD log the version mismatch with the peer address so the operator can see what is out of date.
+
+There is no automatic downgrade. If two ends disagree on major version, the operator updates one of them.
+
+## 5. Discovery
+
+### 5.1 UDP broadcast beacon (the reliable path)
+
+Each source broadcasts an announce frame to `255.255.255.255:3140` once per `announce_interval_s` (default 1 second).
+
+Hubs bind a UDP socket to `0.0.0.0:3140` and receive announces from every source on the same subnet. The source's IP comes from the packet's source address; it is never inside the payload.
+
+### 5.2 Announce payload
+
+```json
+{
+    "v":          "1.0",
+    "type":       "announce",
+    "id":         "flexgrid-d7af0b",
+    "role":       "source",
+    "dev":        "flexgrid",
+    "fw":         "v4.0.0",
+    "transports": ["wifi"],
+    "caps":       ["sensor", "status", "cmd", "imu"],
+    "matrix":     [15, 4],
+    "services":   {"cmd": 8001},
+    "ts":         164587
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Stable device id. |
+| `role` | string | yes | Always `"source"` for v1.0. Reserved for future roles like `"gateway"`. |
+| `dev` | string | yes | Device type (`"flexgrid"`, `"lask5"`, `"openhand"`, etc.). Used by hubs to pick the right data parser. |
+| `fw` | string | yes | Firmware version, e.g. `"v4.0.0"`. |
+| `transports` | string[] | yes | Available transports. `["wifi"]` in v1.0. BLE is reserved for v1.1+. |
+| `caps` | string[] | yes | Capability tags: `sensor`, `status`, `cmd`, `imu`, `label`, `haptic`, `battery`. Hubs key UI off this. |
+| `matrix` | int[2] | grid sources only | `[cols, rows]` for grid sources. Absent for non-grid sources like LASK5. |
+| `services` | object | yes | Map of capability -> port. v1.0 has exactly one entry: `cmd` -> the TCP cmd port (8001 for FlexGrid, 8002 for LASK5). |
+
+The data port and announce port are protocol-fixed (3141 and 3140); only the per-device-type cmd port is advertised.
+
+### 5.3 Beacon suppress when subscribed (REQUIRED hub address cache)
+
+To keep the broadcast channel quiet during capture, a source MUST stop broadcasting announces while it has at least one subscriber, and MUST resume within one `announce_interval_s` of the subscriber list becoming empty.
+
+This means a late-joining hub will NOT see an announce while another hub is already subscribed. To stay reachable in that window, every hub MUST keep a persistent address cache of devices it has seen and SHOULD re-probe known devices via `get_info` on startup. PC `openmuscle web` and Android Connect both implement this; new hubs must do the same.
+
+The cache key is the device `id`. The cached entry holds at minimum: last known IP, cmd port, last contact timestamp.
+
+### 5.4 mDNS (optional best-effort)
+
+A source MAY register itself as `<device-id>.local` and SHOULD advertise the `_openmuscle._udp` service. MicroPython builds without an mDNS C module no-op gracefully; the broadcast beacon is the reliable path.
+
+Hubs MAY use mDNS to resolve a known device that has gone silent, as an alternative to the address cache. mDNS is never the only discovery path; the spec requires the cache.
+
+## 6. Command channel
+
+The cmd channel is TCP, newline-delimited JSON, one command per line, one ack per line. WebSocket framing is not used in v1.0; native hubs open a raw TCP socket. Browser hubs that need this in the future will go through a server-side bridge.
+
+### 6.1 Command envelope (hub -> source)
+
+```json
+{
+    "v":      "1.0",
+    "type":   "cmd",
+    "msg_id": 42,
+    "data": {
+        "verb":      "subscribe",
+        "host":      "10.0.0.102",
+        "port":      3141,
+        "transport": "wifi",
+        "hub_id":    "pc-native-discovery"
+    }
+}
+```
+
+### 6.2 Ack envelope (source -> hub)
+
+```json
+{
+    "v":      "1.0",
+    "type":   "ack",
+    "status": "ok",
+    "msg_id": 42,
+    "data": {
+        "verb":             "subscribe",
+        "accepted":         true,
+        "subscriber_count": 2,
+        "max_subscribers":  4
+    }
+}
+```
+
+On error, `status` is `"error"` and `data.message` carries a human-readable reason.
+
+### 6.3 Verbs
+
+#### subscribe
+
+Register the hub as a Wi-Fi (or future BLE) recipient of this source's data frames.
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `verb` | string | yes | `"subscribe"`. |
+| `host` | string | **optional** | The hub's data-receive IP. If omitted, the source uses the TCP peer address. Phone clients SHOULD omit; PC clients SHOULD send explicit `host` so they continue to work behind NAT and on multi-homed machines. |
+| `port` | int | yes | The hub's data-receive UDP port. Convention is 3141. |
+| `transport` | string | no | `"wifi"` (default) or `"ble"` (reserved). |
+| `hub_id` | string | no | Free-form hub identity for diagnostics. Logged on the source. |
+
+Ack `data`: `{verb, accepted, subscriber_count, max_subscribers}`. `accepted=false` means the subscriber list is full.
+
+Re-subscribing the same `(host, port, transport)` triple is idempotent and refreshes the heartbeat timestamp; it does not consume a new slot.
+
+#### unsubscribe
+
+Remove the hub from the subscriber list. Same `host` / `port` / `transport` fields as `subscribe`. Ack `data`: `{verb, removed, subscriber_count}`.
+
+#### heartbeat
+
+Refresh the hub's last-seen timestamp. Same `host` / `port` / `transport` fields. Sent over the SAME TCP cmd channel, not UDP, so a half-closed TCP is visible immediately. Cadence is 1 Hz. Ack `data`: `{verb, refreshed}`.
+
+A source MUST drop a subscriber whose last heartbeat is older than `heartbeat_timeout_s` (default 5 seconds, source-configurable). On drop, if no subscribers remain, the source resumes the announce beacon within one `announce_interval_s`.
+
+#### get_info
+
+Read-only: source replies with capabilities and current state. No effect on subscription.
+
+Ack `data`:
+```json
+{
+    "verb":        "get_info",
+    "id":          "flexgrid-d7af0b",
+    "dev":         "flexgrid",
+    "fw":          "v4.0.0",
+    "matrix":      [15, 4],
+    "caps":        ["sensor", "status", "cmd", "imu"],
+    "subscribers": [
+        {"host": "10.0.0.102", "port": 3141, "transport": "wifi",
+         "hub_id": "pc-native-discovery", "age_ms": 312}
+    ]
+}
+```
+
+`get_info` is the canonical way for a hub to re-probe a known device whose beacon is silent (because another hub is subscribed).
+
+#### set_scan_rate
+
+Change the sensor scan interval. `data.interval_ms` is an int in the range 5..2000. Out-of-range values reply `status="error"`. Ack `data`: `{verb, interval_ms}`.
+
+#### start_stream, stop_stream
+
+Pause and resume sensor frame emission without losing the subscriber list. Useful for trainer apps that want to gate streaming. Ack `data`: `{verb, streaming: true|false}`.
+
+#### reboot
+
+Schedule a soft reset of the source. Ack is sent before the reboot fires. Ack `data`: `{verb, rebooting: true}`.
+
+### 6.4 Subscriber cap
+
+A source enforces a per-device subscriber cap (default 4). This bounds UDP fan-out cost. The cap MUST cover at least three simultaneous hubs (phone + PC + VR); 4 leaves one spare slot for a second phone or a logging tool. Future hardware revisions may raise it; the announce `meta` (if present) can carry the current cap.
+
+## 7. Data frames
+
+Unicast UDP to each subscriber's `(host, port)`. One JSON object per UDP packet. Frames carry a `seq` field; hubs detect drops by gap.
+
+### 7.1 FlexGrid (`type: "flexgrid"`)
+
+```json
+{
+    "v":    "1.0",
+    "type": "flexgrid",
+    "id":   "flexgrid-d7af0b",
+    "ts":   164587,
+    "seq":  62344,
+    "data": {
+        "matrix": [
+            [col0_row0, col0_row1, col0_row2, col0_row3],
+            [col1_row0, col1_row1, col1_row2, col1_row3],
+            ...
+        ]
+    },
+    "meta": {"battery_mv": 3940, "rssi": -54}
+}
+```
+
+- `data.matrix` is column-major: outer length is the column count, each inner array length is the row count. V3 is 16x4; V4 is 15x4 (15 cols x 4 rows). Hubs MUST consult the announce `matrix: [cols, rows]` for the source's actual dimensions rather than assume.
+- ADC values are 12-bit unsigned (0..4095).
+- `data.rows` and `data.cols` MAY be included for legacy parsers; they MUST agree with the matrix shape if present.
+
+### 7.2 LASK5 (`type: "lask5"`)
+
+```json
+{
+    "v":    "1.0",
+    "type": "lask5",
+    "id":   "lask5-01",
+    "ts":   164587,
+    "seq":  4012,
+    "data": {
+        "values":   [0.42, 0.18, 0.91, 0.0],
+        "joystick": {"x": 2048, "y": 2048}
+    }
+}
+```
+
+- `data.values` is a flat array of calibrated finger-target floats in `[0.0, 1.0]`. The reference firmware emits 4 values; spec does not cap this at 4.
+- `data.joystick` is optional; absent on hardware without a joystick.
+
+### 7.3 Quest hand tracking (`type: "quest_hand"`)
+
+Synthesized server-side by the PC app from WebXR frames (browsers can't speak UDP). Carried for completeness because hubs trained on FlexGrid+LASK5 must also accept Quest sources without surprise.
+
+```json
+{
+    "data": {
+        "values":      [px, py, pz, rx, ry, rz, rw, ...],
+        "handedness":  "left" | "right",
+        "joint_names": ["wrist", "thumb-metacarpal", ...],
+        "hands": {
+            "handedness": "left",
+            "joints": [
+                {"name": "wrist", "pos": [x, y, z], "rot": [x, y, z, w], "radius": 0.02, "valid": true}
+            ]
+        }
+    }
+}
+```
+
+- `values` follows the LASK5 convention: flat, canonical joint x channel order, 7 floats per joint `[px, py, pz, rx, ry, rz, rw]`. The label width is locked at the first label packet; later packets are padded or truncated to keep CSV rectangular.
+- Tracking-lost joints MUST be emitted as zero position + identity quaternion with `valid: false`. Omitting a joint shifts every later joint into the wrong CSV column and silently misaligns labels.
+- Empty payloads (full-hand tracking-lost) are dropped at the receiver.
+
+A `<capture>.labels.schema.json` sidecar is written on the first `quest_hand` frame of a recording, mapping `label_0..label_N` back to `(joint, channel)`.
+
+### 7.4 Status frames
+
+```json
+{
+    "v":    "1.0",
+    "type": "<device-type>",
+    "id":   "<device-id>",
+    "ts":   164587,
+    "data": {},
+    "meta": {
+        "battery_mv":  3940,
+        "rssi":        -54,
+        "scan_hz":     50,
+        "imu":         {"variant": "tokmas", "accel": [...], "gyro": [...]},
+        "subscribers": 2
+    }
+}
+```
+
+Status frames are unicast on the same UDP data port as sensor frames, at ~1 Hz. Empty `data` plus populated `meta` is the discriminator: sensor pipelines route on `data` shape, status pipelines route on `meta`.
+
+## 8. Multi-device data model
+
+OpenMuscle is designed for multi-source capture (two FlexGrid bands plus a labeler, plus optionally a Quest source) from day one.
+
+### 8.1 Sources are role-agnostic; hubs assign role
+
+A source does not know whether it is on the user's left or right arm. The HUB assigns a role to each subscribed source after subscription. The role is hub-local state, not on-wire.
+
+Defined roles in v1.0: `left`, `right`, `labeler`. Reserved for v1.1: `reference`, `auxiliary`.
+
+A hub MAY persist the role assignment per device `id` so the user does not re-tag on every session.
+
+### 8.2 Multi-source semantics
+
+A hub maintains a set of subscribed sources, each independently:
+- Each source heartbeats independently on its own TCP cmd channel.
+- Each source streams independently on its own UDP unicast.
+- The hub aligns frames across sources by their arrival timestamp (the hub's wall clock), not by the source-local `ts`. Source-local `ts` clocks are not synchronized.
+
+When a source drops (heartbeat timeout or explicit unsubscribe), the hub's data pipeline MUST handle missing-source frames gracefully (zero-fill or skip per the application's choice) rather than blocking on the missing source.
+
+### 8.3 CSV schema v2 (capture)
+
+When a hub writes capture CSVs, the schema is:
+
+```
+ts_hub_ms, role, device_id, <feature_0>, <feature_1>, ..., <feature_N>, <label_0>, ..., <label_M>
+```
+
+- `ts_hub_ms` is the hub's monotonic arrival time, milliseconds, the canonical x-axis for cross-source alignment.
+- `role` is the hub-assigned role (`left`, `right`, `labeler`).
+- `device_id` is the source `id` (preserves traceability when capturing multiple devices of the same role; rare but legal).
+- Feature columns come from the source frame's `data` payload, in source-defined order (matrix flattened column-major for grid sources; `values` as-is for piston sources).
+- Label columns come from the labeler source's frame (`lask5` `data.values` or `quest_hand` flat `data.values`).
+
+### 8.4 Left || Right feature concat order
+
+When training a bilateral model from two FlexGrid sources, features are concatenated in the order **Left then Right** (`features = features_left || features_right`). A 15x4 V4 band gives 60 features per side, so a bilateral capture has 120 feature columns.
+
+This ordering is contractual. Trainers, inference servers, and any future cloud pipeline MUST use Left-then-Right concatenation. Single-band captures use the single role's features in the natural order.
+
+### 8.5 One-limb mirroring
+
+For users with only one arm, the recommended capture topology is two FlexGrid bands on the remaining arm (different positions, e.g. proximal + distal) plus a labeler. During labeling, the labeler position-mirror MUST be applied to the label vector so that the trained model still produces bilateral output.
+
+Mirroring convention: for finger-target labels, the per-finger value is the same on both sides (a closed fist closes both hands). For joint-pose labels (Quest), the `x` coordinate is negated and the quaternion is reflected across the YZ plane. Per-joint mirroring tables MAY be carried in a sidecar JSON.
+
+A hub MUST tag mirrored captures with `meta.mirror: true` in the recording metadata so downstream training does not double-apply mirroring.
+
+## 9. Backward compatibility
+
+A v1.0-compliant hub SHOULD accept these legacy formats from older firmware that has not been updated:
+
+1. **Bare JSON array.** A UDP payload that is a JSON array, not an object, is a legacy FlexGrid V3 frame. The array is the matrix. The hub synthesizes envelope fields: `type="flexgrid"`, `id="flexgrid-legacy-<src-ip>"`, `v="0.x"`.
+2. **Python dict literal.** A payload parseable by `ast.literal_eval` but not by JSON is a legacy LASK5 / SensorBand format. Map `id`, `values`, optional `joystick` into the v1.0 envelope.
+3. **Pre-split announce on 3141.** Pre-spec firmware broadcasts the announce on UDP 3141, not 3140. A v1.0 hub MAY listen on both ports during a transition window and route by frame `type`. This is a transition aid; new firmware MUST use 3140.
+
+Backward-compat is a hub responsibility. v1.0 sources MUST emit only v1.0 frames on the correct ports.
+
+## 10. Conformance
+
+A v1.0-compliant **source** MUST:
+
+1. Broadcast announce frames to `255.255.255.255:3140` at the configured interval.
+2. Stop broadcasting while at least one subscriber is active; resume within one interval of the list becoming empty.
+3. Accept TCP connections on the advertised cmd port (8001 / 8002) and handle the verbs in section 6.3.
+4. Honor the subscriber cap and reply `accepted=false` cleanly when full.
+5. Drop subscribers whose heartbeat is older than the timeout.
+6. Send data frames as unicast UDP to each subscriber's `(host, port)` with a monotonic `seq`.
+7. Survive an invalid command line without dropping the TCP connection (reply with `status=error`).
+8. Catch `BaseException` (not only `Exception`) at the cmd-server accept-loop boundary, and supervise the listener so it restarts if it dies. Without this, an asyncio interruption (e.g. KeyboardInterrupt from a dev tool) silently kills the listener while the rest of the device keeps running, and hubs see a black hole.
+
+A v1.0-compliant **hub** MUST:
+
+1. Bind UDP 3140 for announce and UDP 3141 (or its own chosen port) for data; do not collide on a single port.
+2. Maintain a persistent address cache keyed by device `id`, and re-probe known devices via `get_info` on startup.
+3. Send heartbeats on the SAME TCP cmd channel as the subscribe verb, at 1 Hz.
+4. Re-subscribe if the source drops it (subscribe again, do not assume the prior subscription survived).
+5. Tag each subscribed source with a role (`left`, `right`, `labeler`); persist the tag per device id.
+6. Stamp arrival time on receipt and use that, not source-local `ts`, for cross-source alignment.
+7. Reject frames whose `v` is a major mismatch; log and continue on minor or unknown fields.
+
+## 11. Open for v1.1
+
+The following are intentionally NOT in v1.0; they are tracked here so implementers know what to leave room for.
+
+- **BLE transport** alongside Wi-Fi. `transports: ["wifi", "ble"]` in the announce, BLE-specific subscribe with characteristic handles in `data`.
+- **Time sync.** Source-local `ts` is not synchronized across devices. A future spec may add a hub-driven time-sync verb.
+- **Subscribe filters.** Letting a subscriber request only sensor or only IMU frames to save bandwidth. Useful for VR latency budgets; deferred because port-split already separates the heaviest streams.
+- **Authenticated subscribe.** No auth in v1.0; LAN trust model. Future versions may add a pre-shared token.
+- **Provisioning handshake.** SoftAP / captive-portal credential push from the phone to a factory-fresh source. Tracked in PROVISIONING.md (separate doc, owned by firmware + phone teams).
+
+## 12. Change log
+
+- **2026-06-23 v1.0** Initial freeze. Port split (3140 announce, 3141 data) and multi-device data model baked in. Reference impl: FlexGridV4-Firmware. Authors: firmware team via OpenMuscle coordination board.
