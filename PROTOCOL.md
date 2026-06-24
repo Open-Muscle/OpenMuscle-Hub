@@ -128,6 +128,7 @@ The cmd channel is TCP, newline-delimited JSON, one command per line, one ack pe
 {
     "v":      "1.0",
     "type":   "cmd",
+    "id":     "pc-native-discovery",
     "msg_id": 42,
     "data": {
         "verb":      "subscribe",
@@ -138,6 +139,8 @@ The cmd channel is TCP, newline-delimited JSON, one command per line, one ack pe
     }
 }
 ```
+
+The top-level `id` is the hub's identity (same hub MAY omit it; the reference firmware accepts cmd frames with or without). The inner `data.hub_id` is the same identity, kept inside `data` for compatibility with the subscribe verb's payload shape; sources match them when both are present.
 
 ### 6.2 Ack envelope (source -> hub)
 
@@ -244,11 +247,12 @@ Unicast UDP to each subscriber's `(host, port)`. One JSON object per UDP packet.
             ...
         ]
     },
-    "meta": {"battery_mv": 3940, "rssi": -54}
+    "meta": {"vbat": 3.94, "pct": 78, "rssi": -54}
 }
 ```
 
-- `data.matrix` is column-major: outer length is the column count, each inner array length is the row count. V3 is 16x4; V4 is 15x4 (15 cols x 4 rows). Hubs MUST consult the announce `matrix: [cols, rows]` for the source's actual dimensions rather than assume.
+- `data.matrix` is **column-major on the wire**: outer length is the column count, each inner array length is the row count. V3 is 16x4; V4 is 15x4 (15 cols x 4 rows). Hubs MUST consult the announce `matrix: [cols, rows]` for the source's actual dimensions rather than assume.
+- The wire layout in this section is separate from the **CSV feature flatten** in section 8.3, which is row-major. Devices emit column-major matrices; hubs that flatten for capture or training do so row-major. See section 8.3.
 - ADC values are 12-bit unsigned (0..4095).
 - `data.rows` and `data.cols` MAY be included for legacy parsers; they MUST agree with the matrix shape if present.
 
@@ -307,16 +311,32 @@ A `<capture>.labels.schema.json` sidecar is written on the first `quest_hand` fr
     "ts":   164587,
     "data": {},
     "meta": {
-        "battery_mv":  3940,
-        "rssi":        -54,
-        "scan_hz":     50,
-        "imu":         {"variant": "tokmas", "accel": [...], "gyro": [...]},
-        "subscribers": 2
+        "vbat":              3.94,
+        "pct":               78,
+        "rssi":              -54,
+        "free_mem":          145000,
+        "uptime_s":          1234,
+        "subscribers":       2,
+        "imu":               {"variant": "tokmas", "accel": [...], "gyro": [...]},
+        "reset_cause":       3,
+        "reset_cause_name":  "soft"
     }
 }
 ```
 
 Status frames are unicast on the same UDP data port as sensor frames, at ~1 Hz. Empty `data` plus populated `meta` is the discriminator: sensor pipelines route on `data` shape, status pipelines route on `meta`.
+
+Status `meta` field semantics:
+- `vbat` is battery voltage as a float in volts (NOT millivolts; this is what the reference firmware emits).
+- `pct` is battery state-of-charge in percent (int, 0..100).
+- `rssi` is Wi-Fi signal strength in dBm.
+- `free_mem` is MicroPython heap free in bytes.
+- `uptime_s` is seconds since boot.
+- `subscribers` is the current subscriber count.
+- `imu` carries the IMU snapshot when the device has one; `variant` distinguishes genuine InvenSense from the TOKMAS rebrand for downstream consumers that need to interpret raw counts.
+- `reset_cause` is the MicroPython machine.reset_cause() integer; `reset_cause_name` is the human-readable form (`"pwr"`, `"hard"`, `"soft"`, `"wdt"`, `"deep"`). Hubs SHOULD log this on reconnect so a silent watchdog reset is visible.
+
+These field names are the canonical contract; hubs key UI off them. Fields not listed here are reserved.
 
 ## 8. Multi-device data model
 
@@ -339,33 +359,73 @@ A hub maintains a set of subscribed sources, each independently:
 
 When a source drops (heartbeat timeout or explicit unsubscribe), the hub's data pipeline MUST handle missing-source frames gracefully (zero-fill or skip per the application's choice) rather than blocking on the missing source.
 
-### 8.3 CSV schema v2 (capture)
+### 8.3 CSV schema v2 (capture, on-disk LONG format)
 
-When a hub writes capture CSVs, the schema is:
+When a hub writes capture CSVs, the on-disk format is **LONG**: one row per source frame, role-tagged. Sources stream unsynchronized (8.2), so the hub cannot put Left and Right onto a single row without resampling; one row per source preserves the raw timing.
+
+Header:
 
 ```
-ts_hub_ms, role, device_id, <feature_0>, <feature_1>, ..., <feature_N>, <label_0>, ..., <label_M>
+ts_hub_ms, role, device_id, R0C0, R0C1, ..., R{rows-1}C{cols-1}, label_0, ..., label_M
 ```
 
-- `ts_hub_ms` is the hub's monotonic arrival time, milliseconds, the canonical x-axis for cross-source alignment.
+- `ts_hub_ms` is the hub's arrival time in **epoch milliseconds** (UTC). Epoch is used so timestamps remain comparable across runs; monotonic-since-boot is not.
 - `role` is the hub-assigned role (`left`, `right`, `labeler`).
-- `device_id` is the source `id` (preserves traceability when capturing multiple devices of the same role; rare but legal).
-- Feature columns come from the source frame's `data` payload, in source-defined order (matrix flattened column-major for grid sources; `values` as-is for piston sources).
-- Label columns come from the labeler source's frame (`lask5` `data.values` or `quest_hand` flat `data.values`).
+- `device_id` is the source `id` (preserves traceability when capturing multiple devices of the same role).
+- Feature columns are named `R{r}C{c}` where `r` is the row index and `c` is the column index. For a 15x4 V4 band this gives 60 named feature cells: `R0C0, R0C1, ..., R3C14`.
+- **Flatten order is ROW-major, NOT column-major.** Iterate rows outer, columns inner. Feature index `k` holds `matrix[c][r]` where `r = k // cols` and `c = k % cols`. The on-wire matrix in section 7.1 is column-major; the flatten reorders it on write.
+- Label columns come from the labeler source's frame (`lask5` `data.values` or `quest_hand` flat `data.values`), named `label_0..label_M` and emitted as floats (LASK5 calibrated targets are floats in `[0, 1]`; Quest joint poses are floats too).
+- Line endings are CRLF, matching what both the canonical Python `csv.writer` and the phone's writer produce.
 
-### 8.4 Left || Right feature concat order
+This is the byte-canonical layout; the reference is the phone's `tools/make_golden_csv_v2.py` (in OpenMuscle-Connect) and the PC `CaptureWriter` (in OpenMuscle-Software). Both produce identical bytes for identical inputs.
 
-When training a bilateral model from two FlexGrid sources, features are concatenated in the order **Left then Right** (`features = features_left || features_right`). A 15x4 V4 band gives 60 features per side, so a bilateral capture has 120 feature columns.
+### 8.4 Left || Right feature concat (derived TRAINER matrix)
 
-This ordering is contractual. Trainers, inference servers, and any future cloud pipeline MUST use Left-then-Right concatenation. Single-band captures use the single role's features in the natural order.
+The 120-column Left-then-Right concatenation is the **derived trainer matrix**, not the on-disk CSV column count. It is formed by grouping CSV rows (section 8.3) by `ts_hub_ms` and concatenating Left features then Right features:
+
+```
+trainer_row = features_left (60 cols) || features_right (60 cols) || label vector
+```
+
+A 15x4 V4 band gives 60 features per side, so a bilateral trainer matrix has 120 feature columns. The on-disk CSV remains LONG (~60 feature columns plus role + ids); the pivot to 120-column wide is the trainer pipeline's responsibility.
+
+Pivot rules:
+- Group CSV rows by `ts_hub_ms`. Drop groups missing a side.
+- For the labeler value, use the labeler row nearest to the group's `ts_hub_ms` (within a configurable window; the PC reference uses the existing `TemporalMatcher`).
+- A trainer that sees only one distinct `role` in the input MUST detect that and skip the pivot, training a 60-feature single-source model. Pooling Left and Right rows into a role-agnostic 60-feature model is a silent failure mode and MUST be guarded against.
+
+This ordering (Left then Right) is contractual. Trainers, inference servers, and any future cloud pipeline MUST use it. Single-band captures stay 60 features wide.
 
 ### 8.5 One-limb mirroring
 
 For users with only one arm, the recommended capture topology is two FlexGrid bands on the remaining arm (different positions, e.g. proximal + distal) plus a labeler. During labeling, the labeler position-mirror MUST be applied to the label vector so that the trained model still produces bilateral output.
 
-Mirroring convention: for finger-target labels, the per-finger value is the same on both sides (a closed fist closes both hands). For joint-pose labels (Quest), the `x` coordinate is negated and the quaternion is reflected across the YZ plane. Per-joint mirroring tables MAY be carried in a sidecar JSON.
+**Same-arm band-to-slot mapping.** When two same-arm bands feed the Left and Right slots of section 8.4's 120-feature trainer matrix, the deterministic convention is:
 
-A hub MUST tag mirrored captures with `meta.mirror: true` in the recording metadata so downstream training does not double-apply mirroring.
+| Physical position | Trainer slot |
+|---|---|
+| Proximal (closer to the elbow) | Left |
+| Distal (closer to the wrist) | Right |
+
+Hubs MUST surface this convention in their role-assignment UI so two operators tagging the same physical setup produce identical feature vectors. Without it, "proximal-as-left" and "distal-as-left" would both be valid local choices and the resulting trainer matrices would be incompatible.
+
+Mirroring convention for the label vector: for finger-target labels, the per-finger value is the same on both sides (a closed fist closes both hands). For joint-pose labels (Quest), the `x` coordinate is negated and the quaternion is reflected across the YZ plane. Per-joint mirroring tables MAY be carried in a sidecar JSON.
+
+A hub MUST tag mirrored captures with `mirror: true` in the per-capture sidecar (`<capture>.meta.json`, section 8.6) so downstream training does not double-apply mirroring.
+
+### 8.6 Capture sidecar files
+
+A v2 capture writes the LONG CSV (section 8.3) plus one or two JSON sidecars, all sharing the capture's base filename:
+
+| File | Owner | Contents |
+|---|---|---|
+| `<capture>.csv` | hub writer | The LONG capture CSV per section 8.3. |
+| `<capture>.meta.json` | hub writer | Capture-level metadata: `schema` (`"v2"`), `mirror` (bool, per 8.5), `label_source` (`"lask5"` / `"quest"` / `"manual"`), `roles` (object: `device_id` -> role token), `created_ms` (epoch ms). |
+| `<capture>.labels.schema.json` | hub writer, Quest captures only | Maps `label_0..label_N` back to `(joint, channel)` for Quest sources. Written on the first `quest_hand` frame of a recording. |
+
+Hubs writing v2 captures MUST emit `<capture>.meta.json` so the trainer can read `mirror` (to NOT double-apply one-limb mirroring) and `roles` (to map device ids to roles without parsing every CSV row). The PC and phone writers use the same key names; trainers and analyzers can read either source identically.
+
+The two sidecars (`meta.json` and `labels.schema.json`) coexist; neither overwrites the other.
 
 ## 9. Backward compatibility
 
@@ -413,3 +473,4 @@ The following are intentionally NOT in v1.0; they are tracked here so implemente
 ## 12. Change log
 
 - **2026-06-23 v1.0** Initial freeze. Port split (3140 announce, 3141 data) and multi-device data model baked in. Reference impl: FlexGridV4-Firmware. Authors: firmware team via OpenMuscle coordination board.
+- **2026-06-24 v1.0 (pre-push fixes, doc-only, non-breaking)**: section 7.1 + 7.4 status `meta` field names corrected to match the reference firmware (`vbat`, `pct`, `rssi`, `free_mem`, `uptime_s`, `subscribers`, `imu`, `reset_cause`, `reset_cause_name`; not `battery_mv` / `scan_hz`). Section 8.3 corrected to **row-major** R{r}C{c} feature flatten and clarified as the on-disk LONG capture format. Section 8.4 reframed as the derived TRAINER matrix (120 cols = pivot result, not on-disk CSV column count) with pivot rules. Section 8.5 adds the deterministic proximal->left / distal->right mapping for two same-arm bands. Section 8.6 (new) specifies the `meta.json` + `labels.schema.json` capture sidecars and pins their key names so phone and PC writers stay interoperable. Section 6.1 cmd example gains a top-level `id`. Sign-offs in: phone (#0026, #0042, #0053), vrpc (#0032, #0057). Overseer ratified (#0036, #0058, #0068). Reference: `make_golden_csv_v2.py` (phone byte golden) and `web/state.py` + `CaptureWriter` (PC writer).
