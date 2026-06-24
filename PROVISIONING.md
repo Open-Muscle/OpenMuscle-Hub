@@ -36,23 +36,34 @@ If STA fails AFTER a previous successful join (the user's router is rebooting, t
 
 ## 3. AP mode
 
-When a source is in `unprovisioned`, it starts a Wi-Fi access point with these parameters:
+When a source is in `unprovisioned`, it starts a WPA2-PSK Wi-Fi access point with these parameters:
 
 | Parameter | Value |
 |---|---|
 | SSID | `OM-<dev>-<id-tail>`, e.g. `OM-flexgrid-d7af0b`, `OM-lask5-01`. The `<dev>` is the same string the source uses for the announce `dev` field; the `<id-tail>` is the trailing portion of the device id after the type prefix. |
-| Password | none (open AP). |
+| Auth | **WPA2-PSK** (`AUTH_WPA2_PSK`). Open auth is NOT used in v1.0. |
+| PSK | **Deterministically derived from the device id**: `openmuscle-<id-tail>`, e.g. `openmuscle-d7af0b`, `openmuscle-01`. Always lowercase. 17 characters for V4 boards (8..63 satisfies WPA2). |
 | Channel | 1 by default; the firmware MAY pick a less-congested channel based on a scan. |
 | Device IP | `192.168.4.1` (ESP32 default). |
 | DHCP server | on. Phone receives `192.168.4.x`. |
 | Max stations | 4. |
 | Beacon hidden | no. The SSID is broadcast so phones see it in their normal Wi-Fi picker. |
 
-**Why open AP.** The provisioning channel is plaintext to a single endpoint on a tiny LAN that exists for at most a few minutes during onboarding, with the user physically present beside the device. Adding a shared password adds friction without meaningfully changing the threat model (anyone in radio range can still capture the handshake during the brief window). A pre-shared QR token to authenticate the phone is the v1.1 hardening path.
+**Why WPA2 with a deterministic PSK.** Ratified by Tory 2026-06-24, with phone team concurrence (#0042). The PSK derivation pattern keeps the UX as simple as open AP (no QR token, no per-device printing, no factory-time secret) while encrypting the air link, which closes the cleartext-home-Wi-Fi-password hole during the brief AP window. A passive sniffer in radio range no longer captures the user's home credentials, which is the highest-value asset moving over this channel. A pre-shared QR token for true authentication remains the v1.1 hardening path.
+
+**PSK derivation.** Both the device and the phone client derive the same PSK from the visible device id, with no secret exchange:
+
+```
+PSK = "openmuscle-" + id_tail
+```
+
+where `id_tail` is the device id with the `<dev>-` type prefix removed (e.g. `flexgrid-d7af0b` -> `d7af0b`, `lask5-01` -> `01`). The phone reads the AP SSID `OM-<dev>-<id_tail>`, extracts `<id_tail>` by stripping `OM-<dev>-`, and computes the same PSK. The device prints the PSK on its OLED so users without the Connect app can type it manually.
+
+This derivation is not a secret. Anyone who sees the SSID can compute the PSK; the v1.0 security goal is air-link encryption, not authentication. v1.1 will replace this with a QR token unique per device.
 
 **LED + OLED indication while in AP mode.**
 - The status LED blinks blue at 1 Hz so the user knows the device is in provisioning mode.
-- The OLED (where present) shows: device id on line 1, `WIFI SETUP` on line 2, the AP SSID on line 3, `192.168.4.1` on line 4. This is the printable cheat sheet for a user who is not using the app.
+- The OLED (where present) shows: device id on line 1, `WIFI SETUP` on line 2, the AP SSID on line 3, and the PSK on line 4 (replacing the IP, which is documented as the fixed `192.168.4.1`). The PSK display matters for the no-app fallback path; the Connect app derives it without reading the screen.
 
 ## 4. Provisioning HTTP server
 
@@ -184,7 +195,7 @@ This is OPTIONAL because some MicroPython builds lack a usable UDP socket-server
 The Connect app's onboarding flow:
 
 1. **Scan for unprovisioned devices.** Trigger a Wi-Fi scan and filter SSIDs by the `OM-*` prefix. Present the matches to the user with their `dev` type inferred from the SSID pattern.
-2. **User picks a device.** The app connects to the picked AP via `WifiNetworkSpecifier` through `ConnectivityManager.requestNetwork()` (Android 10+, API 29+). This requests an app-scoped local-only network: the OS shows a one-time approval dialog, the app gets a `Network` handle, and the phone KEEPS home Wi-Fi or cellular as the default route (background data is not lost). HTTP calls in this flow are bound to the device network via `Network.openConnection` or `bindProcessToNetwork`. On unregister after provisioning, the OS auto-reverts; the phone never left home Wi-Fi as default. **Do not use `WifiNetworkSuggestion`** for this step: Suggestion is a hint for the system to maybe auto-join later, has no deterministic connect-now / talk / disconnect semantics, and Android deprioritizes no-internet suggested networks.
+2. **User picks a device.** The app connects to the picked AP via `WifiNetworkSpecifier` through `ConnectivityManager.requestNetwork()` (Android 10+, API 29+). The AP is **WPA2-PSK**, so the specifier carries the PSK via `setWpa2Passphrase(psk)`. The app derives `psk` deterministically from the SSID: strip the `OM-<dev>-` prefix to get the id-tail, then PSK = `"openmuscle-" + id_tail` (lowercase). No QR scan, no user input. The specifier requests an app-scoped local-only network: the OS shows a one-time approval dialog, the app gets a `Network` handle, and the phone KEEPS home Wi-Fi or cellular as the default route (background data is not lost). HTTP calls in this flow are bound to the device network via `Network.openConnection` or `bindProcessToNetwork`. On unregister after provisioning, the OS auto-reverts; the phone never left home Wi-Fi as default. **Do not use `WifiNetworkSuggestion`** for this step: Suggestion is a hint for the system to maybe auto-join later, has no deterministic connect-now / talk / disconnect semantics, and Android deprioritizes no-internet suggested networks.
 3. **Verify identity.** Once connected to the AP, GET `http://192.168.4.1/info` and surface the returned `id`, `dev`, `fw` to the user. The user taps "Yes, this is my device." The app SHOULD cross-check the SSID's id-tail against the returned `/info` `id` and warn on mismatch; a spoofed `OM-*` AP would fail this check.
 4. **Gather credentials.** If the app has `ACCESS_FINE_LOCATION` granted AND location services are on (Android API 27+ requires both to read the saved SSID; API 33+ tightens further), pre-fill the SSID field with the phone's currently-saved home Wi-Fi name. Otherwise fall back to manual entry or the `GET /scan` picker (step 5). Always ask for the password.
 5. **Optional scan.** GET `/scan` to surface nearby SSIDs as a picker if the user is not on the home Wi-Fi at the time of provisioning, or if step 4's auto-fill was unavailable.
@@ -199,7 +210,7 @@ If the same user pulls multiple devices out of the box in sequence, the app shou
 A v1.0-compliant **source** MUST:
 
 1. Boot to `unprovisioned` if `wifi_ssid` is missing or empty.
-2. Broadcast its AP SSID as `OM-<dev>-<id-tail>`, open auth, on `192.168.4.1`.
+2. Broadcast its AP SSID as `OM-<dev>-<id-tail>` with **WPA2-PSK auth** and PSK `openmuscle-<id-tail>` (lowercase), on `192.168.4.1`.
 3. Serve `GET /info` and `POST /provision` per section 4. Other endpoints are SHOULD.
 4. Persist creds and soft-reset on successful `POST /provision`.
 5. Fall back to `unprovisioned` if STA fails to join on a never-before-joined SSID within `sta_join_timeout_s`.
@@ -219,7 +230,10 @@ A v1.0-compliant **phone hub** MUST:
 - **Multi-device batch.** Phone provisions a queue of devices in sequence with the same SSID + password, surfacing progress in a single UI.
 - **TLS.** Self-signed TLS on the provisioning channel once MicroPython's ssl module gets server-mode certificate support that fits in ESP32-S3 RAM.
 
+(Note: the v1.0 open-AP fast path was originally drafted as the default with WPA2 as a v1.1 fast-follow. Tory's 2026-06-24 ratify (board #0124) inverted that: WPA2-PSK is the v1.0 baseline, and the QR-token + TLS paths above remain on the v1.1 roadmap.)
+
 ## 9. Change log
 
 - **2026-06-23 v1.0 DRAFT.** Initial draft. Open AP, plaintext HTTP on 192.168.4.1, `POST /provision` handshake. Captive-portal DNS optional. Phone-side flow specified in section 6. Conformance MUSTs for source + phone in section 7. Awaiting sign-off from phone team before freeze.
 - **2026-06-24 v1.0 (sign-off corrections, doc-only).** Phone signed off (board #0042) with three required corrections, all in section 6: (step 2) the Android connect-to-AP API is `WifiNetworkSpecifier` via `ConnectivityManager.requestNetwork`, NOT `WifiNetworkSuggestion`; the latter has no deterministic connect-now semantics for this flow. (step 4) SSID auto-fill is gated on `ACCESS_FINE_LOCATION` + location services on; the spec now describes the fallback to manual entry or `GET /scan`. (step 6) the phone OMITS `hub_host` / `hub_port` because it does not know its future home-LAN IP during the AP session; post-join discovery on UDP 3140 provides the address. The open-AP threat model in section 3 is still pending Tory's ratify before device-side implementation lands.
+- **2026-06-24 v1.0 (WPA2-PSK ratify).** Tory ratified WPA2, NOT open AP (board #0124). Section 3 updated: WPA2-PSK auth with PSK deterministically derived from the device id (`openmuscle-<id-tail>`, lowercase). Phone derives the same PSK from the visible SSID without any secret exchange (no QR, no factory-time secret), and the OLED prints the PSK for the no-app manual-entry path. Section 6 step 2 updated to pass the PSK via `WifiNetworkSpecifier.setWpa2Passphrase()`. Section 7 source MUST updated. This is the security baseline for v1.0; the QR-token path stays on the v1.1 roadmap. Phone's already-landed onboarding flow (commit 534f182, open-AP-assuming) needs a small derive-and-pass-PSK adjustment.
