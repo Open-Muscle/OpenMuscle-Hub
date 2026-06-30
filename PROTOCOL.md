@@ -87,7 +87,8 @@ Hubs bind a UDP socket to `0.0.0.0:3140` and receive announces from every source
     "caps":       ["sensor", "status", "cmd", "imu"],
     "matrix":     [15, 4],
     "services":   {"cmd": 8001},
-    "ts":         164587
+    "ts":         164587,
+    "boot_seq":   7
 }
 ```
 
@@ -101,6 +102,7 @@ Hubs bind a UDP socket to `0.0.0.0:3140` and receive announces from every source
 | `caps` | string[] | yes | Capability tags: `sensor`, `status`, `cmd`, `imu`, `label`, `haptic`, `battery`. Hubs key UI off this. |
 | `matrix` | int[2] | grid sources only | `[cols, rows]` for grid sources. Absent for non-grid sources like LASK5. |
 | `services` | object | yes | Map of capability -> port. v1.0 has exactly one entry: `cmd` -> the TCP cmd port (8001 for FlexGrid, 8002 for LASK5). |
+| `boot_seq` | int | yes (added) | Monotonic restart counter, incremented once per boot and persisted on the device. Lets a hub detect a fresh boot vs same session and flush cached subscription state. See 5.5. Sources predating this field MAY omit it; hubs MUST treat absent as `0`. |
 
 The data port and announce port are protocol-fixed (3141 and 3140); only the per-device-type cmd port is advertised.
 
@@ -117,6 +119,45 @@ The cache key is the device `id`. The cached entry holds at minimum: last known 
 A source MAY register itself as `<device-id>.local` and SHOULD advertise the `_openmuscle._udp` service. MicroPython builds without an mDNS C module no-op gracefully; the broadcast beacon is the reliable path.
 
 Hubs MAY use mDNS to resolve a known device that has gone silent, as an alternative to the address cache. mDNS is never the only discovery path; the spec requires the cache.
+
+### 5.5 Active discovery probe (hub -> source over UDP)
+
+In addition to the periodic broadcast beacon (5.1), a source MUST listen on its announce port and respond to an active discovery probe with an immediate announce. This lets a hub that just joined a new Wi-Fi network pull a fresh announce in under 100 ms instead of waiting up to one `announce_interval_s` for the next periodic beacon, and also covers the case where a known device went quiet because someone else has been subscribed for a while (5.3).
+
+Probe payload (hub -> 255.255.255.255:3140):
+
+```json
+{
+    "v":    "1.0",
+    "type": "cmd",
+    "data": { "verb": "discover" }
+}
+```
+
+A source receiving a well-formed `discover` MUST respond with the same announce payload it would have sent on the next periodic beacon (5.2). It SHOULD send the response twice:
+
+1. Broadcast to `255.255.255.255:3140` so any hub bound to the announce port on the same link picks it up alongside the probing hub.
+2. Unicast to the prober's `(host, port)` so a hub that probed from an ephemeral port (and is therefore not bound to 3140) still receives the reply.
+
+Sources MUST NOT respond to malformed packets, packets on the announce port that are not `type:"cmd"` with `verb:"discover"`, or their own broadcast announces echoed back.
+
+Hubs SHOULD send a `discover` probe on each of:
+- App foreground / "pull-to-refresh".
+- Wi-Fi network change event (Android `NetworkCallback`, iOS `NWPathMonitor`).
+- A user-driven "find devices" action.
+
+`discover` is the only verb defined on the announce-port UDP channel. All other verbs are on the TCP cmd channel (section 6.3).
+
+### 5.6 boot_seq and stale-subscription detection
+
+The `boot_seq` field in 5.2 is a monotonic per-device counter, incremented and persisted to flash exactly once per boot. Hubs MUST track the most recently observed `boot_seq` per device-`id` and treat a strictly-increasing jump as a signal that the device rebooted and any subscription state cached on the hub for that device is stale. On a jump, a hub MUST:
+
+1. Treat any cached subscription for that device as gone.
+2. Re-subscribe via the cmd channel (6.3) before resuming data assumptions.
+
+Hubs MUST NOT use `boot_seq` to gate which devices to display or which announces to accept; it is solely a stale-state invalidator.
+
+A device that pre-dates this field MAY omit `boot_seq` from its announce; hubs MUST treat absent as `0`. A device that resets its persistence (factory reset, manual clear) MAY restart its `boot_seq` from `0`; the resulting jump-down does NOT invalidate hub state (only strict increases do). Wrap is not specified for v1.0; counters are 64-bit-safe on the wire as JSON integers and 32-bit-safe on-device.
 
 ## 6. Command channel
 
