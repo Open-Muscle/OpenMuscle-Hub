@@ -246,11 +246,38 @@ Ack `data`:
     "subscribers": [
         {"host": "10.0.0.102", "port": 3141, "transport": "wifi",
          "hub_id": "pc-native-discovery", "age_ms": 312}
-    ]
+    ],
+    "role":        "right",
+    "power_mode":  "stream",
+    "imu":         {"chip": "icm42688-tokmas",
+                    "gyro_dps_per_lsb":  0.0610,
+                    "accel_g_per_lsb":   0.000488}
 }
 ```
 
+Optional reply fields (sources that implement them include; pre-this-spec firmware omits):
+
+| Field | Type | Description |
+|---|---|---|
+| `role` | string | Hub-pushed spatial role: `"left"` / `"right"` / `"labeler"`. Absent when the device has no role assigned (= the phone should prompt the user to tag). See `set_role` below. |
+| `power_mode` | string | Current device-side state-machine mode: `"stream"` / `"standby"` / `"charge"`. Lets the phone show the same mode in its UI. See `set_role` below for the cmd that complements `power_mode` cycling on the device. |
+| `imu` | object | Per-IMU-chip scale dict: `{chip, gyro_dps_per_lsb, accel_g_per_lsb}`. Same shape as the announce `imu` field; lets a hub that discovers via cache or mDNS skip the announce step. |
+
 `get_info` is the canonical way for a hub to re-probe a known device whose beacon is silent (because another hub is subscribed).
+
+#### set_role
+
+Push a spatial-role tag to the source. The role is persisted on the device and drives both the idle-LED hue (BLUE left / RED right / GREEN labeler / WHITE unassigned) and the hub's ability to assign Left || Right slots to bilateral captures without re-asking the user every session.
+
+Cmd `data`:
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `verb` | string | yes | `"set_role"` |
+| `role` | string | yes | One of `"left"` / `"right"` / `"labeler"` / `""` (clear). Unknown values are clamped to `""` on the source. |
+
+Ack `data`: `{verb, role}` echoing the resolved role (after clamping).
+
+Sources that pre-date this verb reject it with `status="error"` (unknown verb). Hubs MUST treat that as "device cannot persist role; assign role hub-side only" and continue without further set_role calls for that session.
 
 #### set_scan_rate
 
