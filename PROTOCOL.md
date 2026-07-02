@@ -448,6 +448,17 @@ ts_hub_ms, role, device_id, R0C0, R0C1, ..., R{rows-1}C{cols-1}, label_0, ..., l
 
 This is the byte-canonical layout; the reference is the phone's `tools/make_golden_csv_v2.py` (in OpenMuscle-Connect) and the PC `CaptureWriter` (in OpenMuscle-Software). Both produce identical bytes for identical inputs.
 
+**Forearm-orientation label columns** (ratified 2026-06-26, board #0228; source spec #0209 v0.2). When a VR / `quest_hand` labeler is active in the capture, the hub writes two additional label columns derived from the tracked hand:
+
+| Column | Type | Description |
+|---|---|---|
+| `forearm_roll_deg` | float, `[-180, 180]` | Continuous forearm roll, **gravity-relative**: `0` = palm-up (palm normal aligned with world up), `±180` = palm-down, `±90` = palm vertical. Gravity-relative because Quest hand tracking does not expose the elbow, so a true anatomical zero is not derivable; any anatomical re-zeroing is a fixed offset applied downstream. |
+| `palm_up` | int, `0/1` | Derived flag: `1` = palm faces up. Monotone in `forearm_roll_deg`, so consumers can re-derive it from the roll column without reading a threshold from this spec. |
+
+Presence convention: these columns are **OMITTED entirely** from captures that have no VR/quest labeler (not written as NaN or sentinel). `meta.json`'s `label_source` is the truth for whether they exist. Because schema-v2 files can therefore have differing column sets, **consumers MUST reindex each capture against the full schema-v2 column set before stacking captures** — a naive concat silently NaN-fills or misaligns.
+
+Reference derivation: `openmuscle/forearm.py` in OpenMuscle-Software (position-based, wrist + knuckle joints vs gravity; handedness flips the palm normal).
+
 ### 8.4 Left || Right feature concat (derived TRAINER matrix)
 
 The 120-column Left-then-Right concatenation is the **derived trainer matrix**, not the on-disk CSV column count. It is formed by grouping CSV rows (section 8.3) by `ts_hub_ms` and concatenating Left features then Right features:
@@ -544,3 +555,4 @@ The following are intentionally NOT in v1.0; they are tracked here so implemente
 - **2026-06-23 v1.0** Initial freeze. Port split (3140 announce, 3141 data) and multi-device data model baked in. Reference impl: FlexGridV4-Firmware. Authors: firmware team via OpenMuscle coordination board.
 - **2026-06-24 v1.0 (pre-push fixes, doc-only, non-breaking)**: section 7.1 + 7.4 status `meta` field names corrected to match the reference firmware (`vbat`, `pct`, `rssi`, `free_mem`, `uptime_s`, `subscribers`, `imu`, `reset_cause`, `reset_cause_name`; not `battery_mv` / `scan_hz`). Section 8.3 corrected to **row-major** R{r}C{c} feature flatten and clarified as the on-disk LONG capture format. Section 8.4 reframed as the derived TRAINER matrix (120 cols = pivot result, not on-disk CSV column count) with pivot rules. Section 8.5 adds the deterministic proximal->left / distal->right mapping for two same-arm bands. Section 8.6 (new) specifies the `meta.json` + `labels.schema.json` capture sidecars and pins their key names so phone and PC writers stay interoperable. Section 6.1 cmd example gains a top-level `id`. Sign-offs in: phone (#0026, #0042, #0053), vrpc (#0032, #0057). Overseer ratified (#0036, #0058, #0068). Reference: `make_golden_csv_v2.py` (phone byte golden) and `web/state.py` + `CaptureWriter` (PC writer).
 - **2026-06-25 v1.0 (data.imu, non-breaking optional)**: section 7.1 gains optional `data.imu = {"accel": [ax,ay,az], "gyro": [gx,gy,gz]}` for sources that ride IMU samples on the sensor channel at the sensor rate, for smooth orientation viz. Variant + temperature stay in `meta.imu` (section 7.4) as the canonical metadata path. Decision: board #0163 (Tory). Reference impl: FlexGridV4-Firmware imu_loop publishing into a shared cache that sensor_loop reads and passes through `network_manager.send_sensor(... imu=...)`.
+- **2026-07-02 v1.0 (forearm-orientation label columns, non-breaking optional)**: section 8.3 gains the ratified `forearm_roll_deg` (float [-180,180], gravity-relative, 0 = palm-up) + `palm_up` (int 0/1) label columns, written only when a VR/`quest_hand` labeler is in the capture; OMITTED otherwise (no sentinel), with `meta.json` `label_source` as the presence truth and a hard consumer-reindex-before-stacking requirement. Ratified by Tory (board #0228); source spec #0207/#0209 v0.2 (vrpc); derivation reference `openmuscle/forearm.py`. Does not touch sections 5.5/5.6/6.3 (frozen per #0288/#0316).
