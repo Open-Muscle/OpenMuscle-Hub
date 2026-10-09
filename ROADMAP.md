@@ -34,7 +34,7 @@ The first beneficiaries are people with intact forearms but missing hands. The b
 The focus is on shipping V4 to outside hands, hardening the contribution flow so collaborators can start adding value, and standing up the public data pipeline.
 
 ### Hardware
-- **FlexGrid V4 dev kit rollout.** Ten units ordered; first three (founder plus two collaborators) deployed by late June 2026. The V4 keeps the rigid PCB on the left side of the band, matching the V3 layout that proved out.
+- **FlexGrid V4 dev kit rollout.** A first batch of kits is going out to outside collaborators; the next step is feedback and hardening. The V4 keeps the rigid PCB on the left side of the band, matching the V3 layout that proved out.
 - **Bridge PCB research.** A separate interposer PCB between the flexible sensor PCB and the rigid compute board. It carries the multiplexer so the harness drops from the current 19 wires down to 8, and it takes mechanical stress off the flexible PCB to reduce wear and make repairs easier. Intended for a future hardware revision (not V4 itself), so the option exists when V5 design starts. Idea contributed by [@HeatRIderHR](https://github.com/HeatRIderHR) ([#3](https://github.com/Open-Muscle/OpenMuscle-Hub/issues/3)).
 - **LASK5 repo cleanup.** The hardware repo migration to `Open-Muscle/OpenMuscle-LASK5` is done. Remaining: flatten the duplicated KiCad trees from the migration, prune committed backup archives, and promote firmware (MIT) to its own repo when the hardware stabilizes, per the repo layout doc.
 
@@ -72,7 +72,7 @@ The near-term work earns OpenMuscle the right to talk about scale. This section 
 
 ### Organization
 - **Nonprofit board** filled with independent directors (prosthetics expertise, academic research, disability advocacy).
-- **Self-sustaining revenue.** Licensing fees and donations cover operating costs without founder cash injection.
+- **Self-sustaining revenue.** Licensing fees and donations cover operating costs without needing owner cash injection.
 - **First nonprofit-funded device giveaways** to people who need a prosthetic-control sensor but can't afford one.
 
 ---
@@ -101,7 +101,7 @@ This is the ten-year north star. Every milestone above is a step toward it. We m
 
 OpenMuscle is preparing to incorporate as a nonprofit. Full structural details will be published as incorporation work progresses. The core commitment is unchanged: hardware designs, software, and datasets remain open under MIT, CERN-OHL-S-2.0, and Creative Commons licenses. The only thing the nonprofit will gate is the OpenMuscle trademark, via a brand-licensing program. Other companies are explicitly welcome to build commercial products on top of the open designs; the nonprofit will not, and structurally cannot, prevent commercial forks.
 
-Project costs are currently funded by the founder personally. This will change as the nonprofit comes online and a sustainable mix of donations, grants, and brand-licensing fees takes over.
+Project costs are currently funded by the project's maintainers personally. This will change as the nonprofit comes online and a sustainable mix of donations, grants, and brand-licensing fees takes over.
 
 ---
 
