@@ -3,7 +3,7 @@
 **Status:** DRAFT for sign-off by the phone app and firmware maintainers.
 **Companion to:** [PROTOCOL.md](./PROTOCOL.md). This document covers how a factory-fresh source gets onto the user's Wi-Fi; PROTOCOL.md covers everything that happens after.
 **Owner:** the firmware maintainers (device side) and the phone app maintainers (app side).
-**Reference implementation:** to land in FlexGridV4-Firmware (device) and OpenMuscle-Connect (phone).
+**Reference implementation:** FlexGridV4-Firmware (device) and OpenMuscle-Connect (phone). Section 9 lists which parts of this spec the FlexGrid V4 firmware does and does not implement; where this document says what the V4 band shows or does, it describes that firmware.
 
 The unified plan calls manual `settings.json` editing "not the normal path." This spec is the normal path: a user pulls a device out of the box, opens the Connect app on their phone, and the device joins their Wi-Fi without anyone touching a config file.
 
@@ -28,9 +28,11 @@ A source has three Wi-Fi states:
 |---|---|---|
 | `unprovisioned` | `config/settings.json` has no `wifi_ssid` (or it is the empty string) at boot. | Start AP mode (section 3). Run HTTP server (section 4). Wait for `POST /provision`. |
 | `provisioned` | `wifi_ssid` is set. | Start STA mode. Run normal discovery + cmd + data per PROTOCOL.md. |
-| `reprovision_requested` | User explicitly cleared creds (BOOT-hold button + menu, OR `POST /reprovision`). | Clear `wifi_ssid` and `wifi_password`, persist, soft reset. On next boot, enter `unprovisioned`. |
+| `reprovision_requested` | User explicitly cleared creds (a button gesture on the device, OR `POST /reprovision`). On the FlexGrid V4 the gesture is MENU + SELECT held together for 3 s; the silkscreen BOOT button is wired to the chip reset and cannot be read by firmware. | Clear `wifi_ssid` and `wifi_password`, persist, reset. On next boot, enter `unprovisioned`. |
 
 A device MUST NOT silently retry STA forever and starve provisioning. If STA fails to join within `sta_join_timeout_s` (default 20 s) AND the device has never previously joined this SSID successfully, it MUST fall back to `unprovisioned` so the user can re-enter creds.
+
+**What the FlexGrid V4 does on a failed first join.** It keeps a `wifi_joined_ok` flag in its settings, false until the band first gets an IP address and reset to false by `POST /provision`, `POST /reprovision` and the button wipe. If the join does not succeed within `sta_join_timeout_s` (default 20 s, clamped to 5..60) and the flag is false, the band records why (`last_wifi_error`: `wrong_password`, `no_ap_found` or `timeout`) and the network it tried (`last_ssid`), clears the saved Wi-Fi name and password, shows `WIFI FAILED` plus the reason on its OLED for about 2 s with the LED blinking amber, and reboots. The next boot is `unprovisioned` with the SAME setup network name and the SAME setup password, and `GET /info` reports `last_wifi_error` and `last_ssid` so a phone or PC app can say what went wrong. About 30 s pass between the reboot after `POST /provision` and the band being back in setup mode. If the flag is true, the band never clears its credentials and keeps retrying in the background.
 
 If STA fails AFTER a previous successful join (the user's router is rebooting, the password changed, etc.), the device keeps retrying STA in the background indefinitely. It does not fall back to AP because the user's existing setup is the source of truth; falling back to AP would break running hubs.
 
@@ -59,11 +61,20 @@ QR delivery was considered and rejected for v1.0: the 128x32 OLED on both V4 and
 - Character set: `abcdefghijkmnpqrstuvwxyz23456789` (32 chars: lowercase a..z minus `l` `o`, digits 2..9 minus `0` `1`). Excludes the ambiguous pairs `0`/`o`, `1`/`l`, `i`/`l` so a user reading the OLED and typing on a phone keypad does not stumble.
 - Source of randomness: `os.urandom(8)` mapped onto the character set (32^10 ~= 2^50 keyspace, well above the WPA2 8-character minimum and far beyond any in-band-derivation threat).
 - Storage: written to `config/settings.json` under `provisioning_psk` on mint, read back on subsequent boots. The file is already gitignored (operator runtime, not template), so the PSK never enters source control.
-- Rotation: a successful `POST /reprovision` clears `wifi_ssid` + `wifi_password` AND rotates `provisioning_psk` (a returned-to-factory device should not present the same PSK to its next owner). Boot-time clear-and-regenerate also works; the spec only requires that the PSK live across normal reboots, not across reprovisioning.
+- Rotation: a successful `POST /reprovision` clears `wifi_ssid` + `wifi_password` AND rotates `provisioning_psk` (a returned-to-factory device should not present the same PSK to its next owner). Nothing else rotates it. In particular the PSK is **stable across** the MENU + SELECT button wipe, the failed-first-join fallback and every ordinary reboot, so the code printed on a sticker or written down stays valid until `/reprovision` is called. Deleting the settings file (the V4 `wipe.py` tool) or re-flashing the board removes the PSK along with the device id, and a new one is minted on the next boot.
 
 **LED + OLED indication while in AP mode.**
-- The status LED blinks blue at 1 Hz so the user knows the device is in provisioning mode.
-- The OLED (where present) shows: device id on line 1, `WIFI SETUP` on line 2, the AP SSID on line 3, and the PSK on line 4. The PSK is the only place the user (or the Connect app) can get it; it does NOT travel on the radio in the clear.
+- The status LED blinks **blue once a second** so the user knows the device is in provisioning mode. If the OLED did not answer at boot (so the PSK cannot be read) the LED instead blinks **blue twice quickly then pauses**.
+- The OLED (where present) shows the setup network name and the PSK, which is the only place the user (or the Connect app) can get the PSK; it does NOT travel on the radio in the clear. The FlexGrid V4 panel is 128x32, which is four lines of 16 characters, and the AP name `OM-flexgrid-d7af0b` is 18 characters, so the screen is:
+
+  | Line | Text | Notes |
+  |---|---|---|
+  | 1 | `WIFI SETUP` | rotates every 3 s through `WIFI SETUP`, `see guide`, and, after a failed join, `LAST TRY FAILED` and the reason |
+  | 2 | `OM-flexgrid-` | first part of the network name |
+  | 3 | `d7af0b` | rest of the name (read lines 2 and 3 as one name) |
+  | 4 | `PW kd3mpq72xy` | the 10-character PSK |
+
+  A 128x64 panel shows the same text without rotating: title, name, `PW ...`, `see guide`, then the failure details. The LED and OLED are the only status the band gives during the AP window.
 
 ## 4. Provisioning HTTP server
 
@@ -81,10 +92,16 @@ Read-only. Returns the same shape as the cmd-channel `get_info` ack, plus a `sta
     "dev":   "flexgrid",
     "fw":    "v4.0.0",
     "caps":  ["sensor", "status", "cmd", "imu"],
+    "state": "unprovisioned",
+    "last_wifi_error": "",
+    "last_ssid":       "",
+    "role":            "",
     "matrix": [15, 4],
-    "state": "unprovisioned"
+    "oled":   true
 }
 ```
+
+`last_wifi_error` and `last_ssid` are empty unless the band just fell back from a failed join (section 2). `role` is `left`, `right`, `labeler` or empty. `oled` is false when the display did not answer at boot. In `provisioned` state (`GET /info` over the LAN) the same payload carries `"state": "provisioned"` and the band's `ip`.
 
 The phone calls this first so the user can confirm "yes, this is the band I just unboxed" before sending credentials.
 
@@ -105,8 +122,8 @@ Body:
 |---|---|---|---|
 | `ssid` | string | yes | 1..32 bytes, UTF-8. |
 | `password` | string | yes | 8..63 bytes for WPA2; empty string allowed for open networks. |
-| `hub_host` | string | no | If present, the device persists this as a default subscriber to attempt after joining STA. Otherwise the device relies on normal hub discovery. Useful when the phone wants the device to immediately stream to a paired PC. |
-| `hub_port` | int | no | Pairs with `hub_host`. Default 3141. |
+| `hub_host` | string | no | If present, the device persists this as a default subscriber to attempt after joining STA. Otherwise the device relies on normal hub discovery. Useful when the phone wants the device to immediately stream to a paired PC. **Not implemented in the FlexGrid V4 firmware:** the value is stored in settings but no subscription is made from it; hubs find the band by its announces on UDP 3140 or by IP. |
+| `hub_port` | int | no | Pairs with `hub_host`. Default 3141. Stored, not used (see above). |
 
 Response on success:
 
@@ -128,9 +145,11 @@ Response on error:
     "v":      "1.0",
     "type":   "provision_ack",
     "status": "error",
-    "data":   {"message": "ssid_too_long"}
+    "data":   {"message": "ssid_length_invalid (1..32 bytes)"}
 }
 ```
+
+The FlexGrid V4 firmware reads the request by `Content-Length`, so a client may send the headers and the body in separate TCP segments. Error messages: `ssid_length_invalid (1..32 bytes)`, `password_length_invalid (8..63 bytes for WPA2, or empty)`, `invalid_json: ...`, `incomplete_body`, `bad_content_length` (HTTP 400) and `request_too_large` (413). The SSID and password are stored exactly as sent, with no whitespace stripping.
 
 After sending the success response, the device MUST:
 1. Persist `ssid` + `password` (and optional `hub_host` + `hub_port`) to `config/settings.json`.
@@ -141,7 +160,7 @@ The device MUST NOT attempt to verify the credentials before persisting. If the 
 
 ### 4.3 `POST /reprovision`
 
-No body required. Clears `wifi_ssid` and `wifi_password` from `settings.json`, then soft resets. Useful when a previously-provisioned device is moved to a new network and the user wants to re-enter credentials. Phones reach this endpoint over the STA-mode normal LAN; it does not require AP mode.
+No body required. Clears `wifi_ssid` and `wifi_password` from `settings.json`, **rotates `provisioning_psk`**, then soft resets. This is the only operation that changes the PSK. Useful when a previously-provisioned device is moved to a new network and the user wants to re-enter credentials. Phones reach this endpoint over the STA-mode normal LAN; it does not require AP mode. The MENU + SELECT button wipe does the same except that it keeps the PSK.
 
 Response:
 
@@ -160,11 +179,13 @@ Returns a self-contained HTML page (no external assets, no JavaScript dependenci
 
 The HTML SHOULD include:
 - The device id and `dev` from `/info` so the user can confirm they are on the right device.
-- A list of nearby SSIDs the device scanned (`GET /scan` results, see 4.5).
+- A list of nearby SSIDs the device scanned (`GET /scan` results, see 4.5). The FlexGrid V4 page does not have this: it is a plain two-field form.
 - A submit button that calls `/provision` via `fetch()`.
 - Plain CSS only; the page renders correctly on any phone browser.
 
-### 4.5 `GET /scan` (optional)
+### 4.5 `GET /scan` (optional, not implemented on the FlexGrid V4)
+
+The FlexGrid V4 firmware does not serve this endpoint; a request gets `404 no_route`, and the setup page asks for the Wi-Fi name to be typed. The shape below is what a device that does implement it should return.
 
 Returns the list of SSIDs the device sees, sorted by signal strength. Hubs and the captive-portal HTML can use this to pre-populate the SSID picker so the user does not have to type their SSID.
 
@@ -188,6 +209,8 @@ Scan is best-effort; the device MAY take up to ~3 seconds to complete a scan and
 
 To make the captive-portal flow seamless on iOS and Android, an `unprovisioned` source SHOULD run a tiny DNS server on UDP 53 that answers every query with `192.168.4.1`. The phone's captive-portal detection probes a well-known URL (`captive.apple.com`, `connectivitycheck.gstatic.com`, etc.) and gets the device's HTML, triggering the OS's "Sign in to network" prompt.
 
+**Not implemented on the FlexGrid V4:** the band runs no DNS server, so phones do not pop up a sign-in page by themselves; the user opens `http://192.168.4.1/` by hand (the setup guide says so).
+
 This is OPTIONAL because some MicroPython builds lack a usable UDP socket-server primitive at the required level. Devices that omit the captive-portal DNS MUST still serve `GET /` correctly so the user can complete provisioning by typing `192.168.4.1` into a browser.
 
 ## 6. Phone-side handshake
@@ -203,6 +226,8 @@ The Connect app's onboarding flow:
 7. **Wait for handoff.** After the 200 OK, the device reboots and leaves AP mode. Because the phone connected via `WifiNetworkSpecifier`, the default Wi-Fi was never replaced; the phone simply unregisters the device network and continues on home Wi-Fi. No manual reconnect step.
 8. **Confirm join.** The phone listens on UDP 3140 for the device's announce. Within ~10 seconds of the reboot the announce should arrive. If it does not within `provisioning_timeout_s` (default 60 s), the phone surfaces a failure ("device did not join your Wi-Fi; try again") and re-enters step 2.
 
+After joining, the FlexGrid V4 shows its IP address on the OLED (`WIFI OK` page) for 15 s and again whenever the user taps MENU, so the band can be added by IP when discovery is blocked. It broadcasts UDP announces on 3140, stops announcing while a hub is subscribed, and its data is on 3141 and its command channel on TCP 8001.
+
 If the same user pulls multiple devices out of the box in sequence, the app should remember the user's SSID + password for the session and skip step 4 on subsequent devices.
 
 ## 7. Conformance
@@ -215,13 +240,42 @@ A v1.0-compliant **source** MUST:
 4. Persist creds and soft-reset on successful `POST /provision`.
 5. Fall back to `unprovisioned` if STA fails to join on a never-before-joined SSID within `sta_join_timeout_s`.
 6. Persist all credentials to a file path that is in `.gitignore` (do not bake creds into source-tree defaults).
-7. Indicate provisioning state on the status LED (blue blink while in AP, solid green once joined).
+7. Indicate provisioning state on the status LED (blue blink while in AP, solid green once joined). The FlexGrid V4 values are in the table below.
 
 A v1.0-compliant **phone hub** MUST:
 
 1. Detect `OM-*` SSIDs as unprovisioned devices.
 2. Walk the user through the handshake in section 6.
 3. Provide a "reprovision this device" action that calls `POST /reprovision` over the user's normal LAN once the device is back on STA.
+
+## 7a. Status indication on the FlexGrid V4
+
+The band's RGB LED and OLED tell the user where setup stands. The LED states in boot order:
+
+| LED | Meaning |
+|---|---|
+| Blue, 1 Hz blink | Setup mode (`unprovisioned`): read the OLED |
+| Blue, two quick blinks then a pause | Setup mode, but the OLED is not answering |
+| Blue, steady | Joining the saved Wi-Fi network (up to `sta_join_timeout_s`) |
+| Green, steady for 2 s | Joined; then the normal idle pulse (blue left, red right, green labeler, white unassigned) |
+| Amber, fast blink | First join failed; the band reboots into setup mode in about 2 s |
+| Amber, slow pulse | Wi-Fi lost after a successful join; the band keeps retrying |
+| Amber, 1 Hz blink | Battery low (under 3.55 V, USB unplugged) |
+| Magenta, blinking | MENU + SELECT held: releasing at 3 s wipes the Wi-Fi settings |
+
+Orange, cyan, purple, green-breathing and red-fast-blink are streaming, standby, charge, record and fault states described in the firmware README.
+
+The OLED lines on the 128x32 panel:
+
+| Screen | Lines |
+|---|---|
+| Boot | `OpenMuscle V4` / device id / `Joining Wi-Fi...` / saved network name |
+| Setup | see section 3 |
+| Join failed | `WIFI FAILED` / reason (`check password`, or `network not` + `found or 5 GHz`, or `join timed out`) / `back to setup` |
+| Joined (15 s after joining, and on a MENU tap) | `WIFI OK` / IP address / device id / role |
+| Second MENU tap | battery percent and volts / mode / hub count / network name |
+
+The band includes its IP address and role in `get_info` replies (`ip` once joined, `role` once assigned) and in the status frame (`meta.ip`, `meta.role`, empty strings when unset).
 
 ## 8. Open for v1.1
 
@@ -237,4 +291,5 @@ A v1.0-compliant **phone hub** MUST:
 - **2026-06-23 v1.0 DRAFT.** Initial draft. Open AP, plaintext HTTP on 192.168.4.1, `POST /provision` handshake. Captive-portal DNS optional. Phone-side flow specified in section 6. Conformance MUSTs for source + phone in section 7. Awaiting sign-off from the phone app maintainers before freeze.
 - **2026-06-24 v1.0 (sign-off corrections, doc-only).** The phone app maintainers signed off with three required corrections, all in section 6: (step 2) the Android connect-to-AP API is `WifiNetworkSpecifier` via `ConnectivityManager.requestNetwork`, NOT `WifiNetworkSuggestion`; the latter has no deterministic connect-now semantics for this flow. (step 4) SSID auto-fill is gated on `ACCESS_FINE_LOCATION` + location services on; the spec now describes the fallback to manual entry or `GET /scan`. (step 6) the phone OMITS `hub_host` / `hub_port` because it does not know its future home-LAN IP during the AP session; post-join discovery on UDP 3140 provides the address. The open-AP threat model in section 3 is still pending ratification by the project maintainers before device-side implementation lands.
 - **2026-06-24 v1.0 (WPA2-PSK ratify).** WPA2 ratified, NOT open AP.
+- **2026-10 (spec reconciled with the FlexGrid V4 firmware, doc-only).** Section 2 now describes the failed-first-join fallback as built (`wifi_joined_ok`, `last_wifi_error`, `last_ssid`, back in setup in about 30 s with the same PSK) and names the MENU + SELECT hold as the wipe gesture. Section 3 states that the PSK is stable across the button wipe and rotated only by `POST /reprovision`, and gives the exact setup screen for a 128x32 panel (network name split over two lines, `PW <psk>`, rotating top row) and the blue 1 Hz LED blink with its no-OLED variant. Section 4 records the `/info` fields and the validation messages. New section 7a lists the LED and OLED states. Not implemented on the FlexGrid V4, and marked as such: `GET /scan`, the DNS captive portal and the use of `hub_host` / `hub_port`.
 - **2026-06-24 v1.0 (PSK out-of-band correction).** Review corrected the first WPA2 draft: a PSK derived from the device id in open-source firmware gives no real security because an attacker reads the same code. PSK is now per-device random, minted on first boot via `os.urandom`, persisted to `config/settings.json` as `provisioning_psk`, displayed on the OLED, and rotated by `POST /reprovision`. The phone prompts the user to enter the PSK (typed from the OLED). Section 3 documents the character set (32 chars, no ambiguous pairs) and the rotation rule. Section 6 step 2 prompts the user for the PSK before `setWpa2Passphrase`. Section 7 source MUST updated to require the random-and-OOB PSK with no derivability from public fields. QR delivery rejected for v1.0 because the 128x32 OLED is too small; QR / sticker is on the v1.1 roadmap. Phone's already-landed onboarding flow (commit 534f182) needs a PSK-input field and the `setWpa2Passphrase(userTypedPsk)` wiring.
