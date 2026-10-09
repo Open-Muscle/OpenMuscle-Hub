@@ -1,7 +1,7 @@
 # OpenMuscle Architecture and Repo Layout
 
 Status: active decisions, recorded 2026-06-07.
-Owner: Tory Moghadam (TURFPTAx).
+Owner: the OpenMuscle maintainers (TURFPTAx).
 Scope: how concerns are split across the Open-Muscle repos, and the conventions
 that keep firmware, PC software, hardware, and VR cleanly separated.
 

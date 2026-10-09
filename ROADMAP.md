@@ -2,7 +2,7 @@
 
 **Status:** Living document, updated as milestones complete or strategy shifts.
 **Last updated:** 2026-06-07
-**Maintained by:** Tory (TURFPTAx), founder
+**Maintained by:** the OpenMuscle maintainers (TURFPTAx)
 **Scope:** What OpenMuscle is building, in what order, and why.
 
 This roadmap is intentionally honest about three things: where we are today, what's coming soon (with rough dates), and what the long-term vision looks like (without overselling). If you want to contribute, the near-term section is where to start. If you want to understand why we exist, read the mission and the ten-year vision.
@@ -22,10 +22,9 @@ The first beneficiaries are people with intact forearms but missing hands. The b
 ## Where we are today (June 2026)
 
 - **FlexGrid V3 is working.** The 60-sensor (15 by 4) Velostat band, about $45 in components, runs end-to-end: live sensor capture, model training, inference, and integration with a robot hand. First clean inference session hit R² = 0.854.
-- **FlexGrid V4 is in production.** Ten dev kits ordered, arriving mid-June 2026, shipping to two outside collaborators plus the founder.
+- **FlexGrid V4 is in early distribution.** A first batch of dev kits is going out to outside collaborators.
 - **LASK5** (the labeling wand for ground-truth capture) is functional and lives at [Open-Muscle/OpenMuscle-LASK5](https://github.com/Open-Muscle/OpenMuscle-LASK5); the migration from the legacy `turfptax/lask4` repo is complete.
 - **Software stack** includes the PC application (Python, FastAPI web UI, ML training and hot-swap inference, robot hand forwarding) and the firmware in MicroPython on ESP32-S3.
-- **First academic use:** a master's thesis at an Oregon university is testing FlexGrid on an amputee participant.
 - **Legal structure:** not yet incorporated. Nonprofit incorporation is in preparation; details will be published as that work progresses.
 
 ---
@@ -68,7 +67,7 @@ The near-term work earns OpenMuscle the right to talk about scale. This section 
 
 ### Data and research
 - **Public dataset at meaningful scale.** Target: tens of thousands of labeled sessions across diverse users, hand sizes, and tasks (typing, gaming, instruments, daily activities).
-- **First peer-reviewed publications** beyond the Oregon thesis. Co-authored work with collaborating universities.
+- **First peer-reviewed publications** beyond early pilots. Co-authored work with collaborating research groups.
 - **Open dataset citations** in third-party prosthetics, HCI, and BMI papers.
 
 ### Organization

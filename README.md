@@ -85,7 +85,7 @@ ten-year vision, and the disclosed business structure, lives in
 
 Quick summary of where we are (June 2026):
 
-- **Now shipping:** FlexGrid V4 dev kits (10 units, first 3 deployed)
+- **Now shipping:** FlexGrid V4 dev kits (early distribution to outside collaborators)
 - **In progress:** OpenMuscle-Hub housekeeping, LASK5 repo cleanup, public training dataset, VR/XR client extraction
 - **Planned:** Nonprofit + for-profit incorporation, native VR app, mobile/Android app, V5 hardware with bridge PCB
 
