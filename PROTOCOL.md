@@ -3,7 +3,7 @@
 **Status:** FROZEN as of 2026-06-23. Implementations code against this document.
 **Canonical home:** this file in OpenMuscle-Hub.
 **Reference implementation:** [FlexGridV4-Firmware](https://github.com/Open-Muscle/FlexGridV4-Firmware) (see `lib/discovery.py`, `lib/commands.py`, `lib/subscribers.py`, `lib/network_manager.py`).
-**Owner:** firmware team (changes go through the `.claude-mail/openmuscle` board).
+**Owner:** the firmware maintainers (changes go through a pull request to this file).
 
 This spec covers how OpenMuscle sources (sensor and labeler devices) announce themselves on a LAN, how hubs (Android phone, PC web app, native VR app) subscribe to them, and how the resulting sensor and label streams are framed. The wire format is JSON-encoded UTF-8 over UDP and TCP. There is no binary mode and no WebSocket framing in v1.0.
 
@@ -173,7 +173,7 @@ The cmd channel is TCP, newline-delimited JSON, one command per line, one ack pe
     "msg_id": 42,
     "data": {
         "verb":      "subscribe",
-        "host":      "10.0.0.102",
+        "host":      "192.168.1.50",
         "port":      3141,
         "transport": "wifi",
         "hub_id":    "pc-native-discovery"
@@ -244,7 +244,7 @@ Ack `data`:
     "matrix":      [15, 4],
     "caps":        ["sensor", "status", "cmd", "imu"],
     "subscribers": [
-        {"host": "10.0.0.102", "port": 3141, "transport": "wifi",
+        {"host": "192.168.1.50", "port": 3141, "transport": "wifi",
          "hub_id": "pc-native-discovery", "age_ms": 312}
     ],
     "role":        "right",
@@ -448,7 +448,7 @@ ts_hub_ms, role, device_id, R0C0, R0C1, ..., R{rows-1}C{cols-1}, label_0, ..., l
 
 This is the byte-canonical layout; the reference is the phone's `tools/make_golden_csv_v2.py` (in OpenMuscle-Connect) and the PC `CaptureWriter` (in OpenMuscle-Software). Both produce identical bytes for identical inputs.
 
-**Forearm-orientation label columns** (ratified 2026-06-26, board #0228; source spec #0209 v0.2). When a VR / `quest_hand` labeler is active in the capture, the hub writes two additional label columns derived from the tracked hand:
+**Forearm-orientation label columns** (ratified 2026-06-26). When a VR / `quest_hand` labeler is active in the capture, the hub writes two additional label columns derived from the tracked hand:
 
 | Column | Type | Description |
 |---|---|---|
@@ -548,11 +548,11 @@ The following are intentionally NOT in v1.0; they are tracked here so implemente
 - **Time sync.** Source-local `ts` is not synchronized across devices. A future spec may add a hub-driven time-sync verb.
 - **Subscribe filters.** Letting a subscriber request only sensor or only IMU frames to save bandwidth. Useful for VR latency budgets; deferred because port-split already separates the heaviest streams.
 - **Authenticated subscribe.** No auth in v1.0; LAN trust model. Future versions may add a pre-shared token.
-- **Provisioning handshake.** SoftAP / captive-portal credential push from the phone to a factory-fresh source. Tracked in PROVISIONING.md (separate doc, owned by firmware + phone teams).
+- **Provisioning handshake.** SoftAP / captive-portal credential push from the phone to a factory-fresh source. Tracked in PROVISIONING.md (separate doc, maintained by the firmware and phone app maintainers).
 
 ## 12. Change log
 
-- **2026-06-23 v1.0** Initial freeze. Port split (3140 announce, 3141 data) and multi-device data model baked in. Reference impl: FlexGridV4-Firmware. Authors: firmware team via OpenMuscle coordination board.
-- **2026-06-24 v1.0 (pre-push fixes, doc-only, non-breaking)**: section 7.1 + 7.4 status `meta` field names corrected to match the reference firmware (`vbat`, `pct`, `rssi`, `free_mem`, `uptime_s`, `subscribers`, `imu`, `reset_cause`, `reset_cause_name`; not `battery_mv` / `scan_hz`). Section 8.3 corrected to **row-major** R{r}C{c} feature flatten and clarified as the on-disk LONG capture format. Section 8.4 reframed as the derived TRAINER matrix (120 cols = pivot result, not on-disk CSV column count) with pivot rules. Section 8.5 adds the deterministic proximal->left / distal->right mapping for two same-arm bands. Section 8.6 (new) specifies the `meta.json` + `labels.schema.json` capture sidecars and pins their key names so phone and PC writers stay interoperable. Section 6.1 cmd example gains a top-level `id`. Sign-offs in: phone (#0026, #0042, #0053), vrpc (#0032, #0057). Overseer ratified (#0036, #0058, #0068). Reference: `make_golden_csv_v2.py` (phone byte golden) and `web/state.py` + `CaptureWriter` (PC writer).
-- **2026-06-25 v1.0 (data.imu, non-breaking optional)**: section 7.1 gains optional `data.imu = {"accel": [ax,ay,az], "gyro": [gx,gy,gz]}` for sources that ride IMU samples on the sensor channel at the sensor rate, for smooth orientation viz. Variant + temperature stay in `meta.imu` (section 7.4) as the canonical metadata path. Decision: board #0163 (Tory). Reference impl: FlexGridV4-Firmware imu_loop publishing into a shared cache that sensor_loop reads and passes through `network_manager.send_sensor(... imu=...)`.
-- **2026-07-02 v1.0 (forearm-orientation label columns, non-breaking optional)**: section 8.3 gains the ratified `forearm_roll_deg` (float [-180,180], gravity-relative, 0 = palm-up) + `palm_up` (int 0/1) label columns, written only when a VR/`quest_hand` labeler is in the capture; OMITTED otherwise (no sentinel), with `meta.json` `label_source` as the presence truth and a hard consumer-reindex-before-stacking requirement. Ratified by Tory (board #0228); source spec #0207/#0209 v0.2 (vrpc); derivation reference `openmuscle/forearm.py`. Does not touch sections 5.5/5.6/6.3 (frozen per #0288/#0316).
+- **2026-06-23 v1.0** Initial freeze. Port split (3140 announce, 3141 data) and multi-device data model baked in. Reference impl: FlexGridV4-Firmware. Authors: the firmware maintainers.
+- **2026-06-24 v1.0 (pre-push fixes, doc-only, non-breaking)**: section 7.1 + 7.4 status `meta` field names corrected to match the reference firmware (`vbat`, `pct`, `rssi`, `free_mem`, `uptime_s`, `subscribers`, `imu`, `reset_cause`, `reset_cause_name`; not `battery_mv` / `scan_hz`). Section 8.3 corrected to **row-major** R{r}C{c} feature flatten and clarified as the on-disk LONG capture format. Section 8.4 reframed as the derived TRAINER matrix (120 cols = pivot result, not on-disk CSV column count) with pivot rules. Section 8.5 adds the deterministic proximal->left / distal->right mapping for two same-arm bands. Section 8.6 (new) specifies the `meta.json` + `labels.schema.json` capture sidecars and pins their key names so phone and PC writers stay interoperable. Section 6.1 cmd example gains a top-level `id`. Signed off by the phone app and PC app maintainers. Reference: `make_golden_csv_v2.py` (phone byte golden) and `web/state.py` + `CaptureWriter` (PC writer).
+- **2026-06-25 v1.0 (data.imu, non-breaking optional)**: section 7.1 gains optional `data.imu = {"accel": [ax,ay,az], "gyro": [gx,gy,gz]}` for sources that ride IMU samples on the sensor channel at the sensor rate, for smooth orientation viz. Variant + temperature stay in `meta.imu` (section 7.4) as the canonical metadata path. Approved by the project maintainers. Reference impl: FlexGridV4-Firmware imu_loop publishing into a shared cache that sensor_loop reads and passes through `network_manager.send_sensor(... imu=...)`.
+- **2026-07-02 v1.0 (forearm-orientation label columns, non-breaking optional)**: section 8.3 gains the ratified `forearm_roll_deg` (float [-180,180], gravity-relative, 0 = palm-up) + `palm_up` (int 0/1) label columns, written only when a VR/`quest_hand` labeler is in the capture; OMITTED otherwise (no sentinel), with `meta.json` `label_source` as the presence truth and a hard consumer-reindex-before-stacking requirement. Ratified by the project maintainers; derivation reference `openmuscle/forearm.py`. Does not touch sections 5.5/5.6/6.3 (frozen).

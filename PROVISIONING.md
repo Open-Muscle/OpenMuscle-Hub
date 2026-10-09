@@ -1,8 +1,8 @@
 # OpenMuscle Wi-Fi Provisioning v1.0
 
-**Status:** DRAFT for sign-off by phone + firmware teams. Sign-off via the `.claude-mail/openmuscle` coordination board.
+**Status:** DRAFT for sign-off by the phone app and firmware maintainers.
 **Companion to:** [PROTOCOL.md](./PROTOCOL.md). This document covers how a factory-fresh source gets onto the user's Wi-Fi; PROTOCOL.md covers everything that happens after.
-**Owner:** firmware team (device side) + phone team (app side).
+**Owner:** the firmware maintainers (device side) and the phone app maintainers (app side).
 **Reference implementation:** to land in FlexGridV4-Firmware (device) and OpenMuscle-Connect (phone).
 
 The unified plan calls manual `settings.json` editing "not the normal path." This spec is the normal path: a user pulls a device out of the box, opens the Connect app on their phone, and the device joins their Wi-Fi without anyone touching a config file.
@@ -49,7 +49,7 @@ When a source is in `unprovisioned`, it starts a WPA2-PSK Wi-Fi access point wit
 | Max stations | 4. |
 | Beacon hidden | no. The SSID is broadcast so phones see it in their normal Wi-Fi picker. |
 
-**Why WPA2 with an out-of-band PSK.** Ratified by Tory 2026-06-24 (board #0126). For WPA2 to actually defeat passive sniffing of the user's home Wi-Fi password during the brief AP window, the PSK MUST be unpredictable to an attacker. A PSK derived in open-source firmware from any public field (the SSID, the device id, the type prefix) gives zero real security: an attacker reads the same code and computes the same key. Out-of-band delivery via the OLED screen closes that gap. The user reads the PSK off the device and types it into the Connect app (or a browser at `192.168.4.1`).
+**Why WPA2 with an out-of-band PSK.** Ratified 2026-06-24. For WPA2 to actually defeat passive sniffing of the user's home Wi-Fi password during the brief AP window, the PSK MUST be unpredictable to an attacker. A PSK derived in open-source firmware from any public field (the SSID, the device id, the type prefix) gives zero real security: an attacker reads the same code and computes the same key. Out-of-band delivery via the OLED screen closes that gap. The user reads the PSK off the device and types it into the Connect app (or a browser at `192.168.4.1`).
 
 QR delivery was considered and rejected for v1.0: the 128x32 OLED on both V4 and LASK5 is too narrow to render a QR code of usable density. The v1.1 hardening path is either a larger OLED with a QR or a factory-printed sticker / NFC tag. v1.0 ships with the OLED-displayed PSK.
 
@@ -96,7 +96,7 @@ Body:
 {
     "ssid":     "MyHomeWiFi",
     "password": "correct-horse-battery-staple",
-    "hub_host": "10.0.0.102",
+    "hub_host": "192.168.1.50",
     "hub_port": 3141
 }
 ```
@@ -230,11 +230,11 @@ A v1.0-compliant **phone hub** MUST:
 - **Multi-device batch.** Phone provisions a queue of devices in sequence with the same SSID + password, surfacing progress in a single UI.
 - **TLS.** Self-signed TLS on the provisioning channel once MicroPython's ssl module gets server-mode certificate support that fits in ESP32-S3 RAM.
 
-(Note: the v1.0 open-AP fast path was originally drafted as the default with WPA2 as a v1.1 fast-follow. Tory's 2026-06-24 ratify (board #0124) inverted that: WPA2-PSK is the v1.0 baseline, and the QR-token + TLS paths above remain on the v1.1 roadmap.)
+(Note: the v1.0 open-AP fast path was originally drafted as the default with WPA2 as a v1.1 fast-follow. The 2026-06-24 ratification inverted that: WPA2-PSK is the v1.0 baseline, and the QR-token + TLS paths above remain on the v1.1 roadmap.)
 
 ## 9. Change log
 
-- **2026-06-23 v1.0 DRAFT.** Initial draft. Open AP, plaintext HTTP on 192.168.4.1, `POST /provision` handshake. Captive-portal DNS optional. Phone-side flow specified in section 6. Conformance MUSTs for source + phone in section 7. Awaiting sign-off from phone team before freeze.
-- **2026-06-24 v1.0 (sign-off corrections, doc-only).** Phone signed off (board #0042) with three required corrections, all in section 6: (step 2) the Android connect-to-AP API is `WifiNetworkSpecifier` via `ConnectivityManager.requestNetwork`, NOT `WifiNetworkSuggestion`; the latter has no deterministic connect-now semantics for this flow. (step 4) SSID auto-fill is gated on `ACCESS_FINE_LOCATION` + location services on; the spec now describes the fallback to manual entry or `GET /scan`. (step 6) the phone OMITS `hub_host` / `hub_port` because it does not know its future home-LAN IP during the AP session; post-join discovery on UDP 3140 provides the address. The open-AP threat model in section 3 is still pending Tory's ratify before device-side implementation lands.
-- **2026-06-24 v1.0 (WPA2-PSK ratify).** Tory ratified WPA2, NOT open AP (board #0124).
-- **2026-06-24 v1.0 (PSK out-of-band correction).** Overseer (#0126) corrected the first WPA2 draft: a PSK derived from the device id in open-source firmware gives no real security because an attacker reads the same code. PSK is now per-device random, minted on first boot via `os.urandom`, persisted to `config/settings.json` as `provisioning_psk`, displayed on the OLED, and rotated by `POST /reprovision`. The phone prompts the user to enter the PSK (typed from the OLED). Section 3 documents the character set (32 chars, no ambiguous pairs) and the rotation rule. Section 6 step 2 prompts the user for the PSK before `setWpa2Passphrase`. Section 7 source MUST updated to require the random-and-OOB PSK with no derivability from public fields. QR delivery rejected for v1.0 because the 128x32 OLED is too small; QR / sticker is on the v1.1 roadmap. Phone's already-landed onboarding flow (commit 534f182) needs a PSK-input field and the `setWpa2Passphrase(userTypedPsk)` wiring.
+- **2026-06-23 v1.0 DRAFT.** Initial draft. Open AP, plaintext HTTP on 192.168.4.1, `POST /provision` handshake. Captive-portal DNS optional. Phone-side flow specified in section 6. Conformance MUSTs for source + phone in section 7. Awaiting sign-off from the phone app maintainers before freeze.
+- **2026-06-24 v1.0 (sign-off corrections, doc-only).** The phone app maintainers signed off with three required corrections, all in section 6: (step 2) the Android connect-to-AP API is `WifiNetworkSpecifier` via `ConnectivityManager.requestNetwork`, NOT `WifiNetworkSuggestion`; the latter has no deterministic connect-now semantics for this flow. (step 4) SSID auto-fill is gated on `ACCESS_FINE_LOCATION` + location services on; the spec now describes the fallback to manual entry or `GET /scan`. (step 6) the phone OMITS `hub_host` / `hub_port` because it does not know its future home-LAN IP during the AP session; post-join discovery on UDP 3140 provides the address. The open-AP threat model in section 3 is still pending ratification by the project maintainers before device-side implementation lands.
+- **2026-06-24 v1.0 (WPA2-PSK ratify).** WPA2 ratified, NOT open AP.
+- **2026-06-24 v1.0 (PSK out-of-band correction).** Review corrected the first WPA2 draft: a PSK derived from the device id in open-source firmware gives no real security because an attacker reads the same code. PSK is now per-device random, minted on first boot via `os.urandom`, persisted to `config/settings.json` as `provisioning_psk`, displayed on the OLED, and rotated by `POST /reprovision`. The phone prompts the user to enter the PSK (typed from the OLED). Section 3 documents the character set (32 chars, no ambiguous pairs) and the rotation rule. Section 6 step 2 prompts the user for the PSK before `setWpa2Passphrase`. Section 7 source MUST updated to require the random-and-OOB PSK with no derivability from public fields. QR delivery rejected for v1.0 because the 128x32 OLED is too small; QR / sticker is on the v1.1 roadmap. Phone's already-landed onboarding flow (commit 534f182) needs a PSK-input field and the `setWpa2Passphrase(userTypedPsk)` wiring.
